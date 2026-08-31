@@ -102,6 +102,24 @@ jobs:
         run: |
           mkdir -p public/web-vault/css/ && cp public/css/vaultwarden.css public/web-vault/css/
 
+      - name: Patch web vault master password minimum length
+        env:
+          MIN_MASTER_PASSWORD_LENGTH: ${{ vars.MIN_MASTER_PASSWORD_LENGTH || '8' }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          count=0
+          for f in public/web-vault/app/*.js; do
+            if grep -q "minimumPasswordLength=12" "$f"; then
+              sed -i "s/minimumPasswordLength=12/minimumPasswordLength=${MIN_MASTER_PASSWORD_LENGTH}/g" "$f"
+              count=$((count+1))
+            fi
+          done
+          echo "Set web vault master password minimum length to ${MIN_MASTER_PASSWORD_LENGTH} (patched ${count} file(s))"
+          if [ "$count" -eq 0 ]; then
+            echo "WARNING: no 'minimumPasswordLength=12' found; web vault may use a different default. Verify manually."
+          fi
+
       - name: Replace D1_DATABASE_ID in wrangler.toml
         run: sed -i "s/\${D1_DATABASE_ID}/${{ secrets.D1_DATABASE_ID }}/g" wrangler.toml
 
