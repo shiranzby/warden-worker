@@ -20,8 +20,9 @@ jobs:
       # - Set to "latest" to follow the latest bw_web_builds release
       BW_WEB_VERSION: ${{ vars.BW_WEB_VERSION || 'v2026.6.4' }}
 
-      # Required for wrangler
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      # Required for wrangler (Global API Key auth: EMAIL + API_KEY pair)
+      CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+      CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
     steps:
@@ -243,8 +244,21 @@ jobs:
       - uses: cloudflare/wrangler-action@da0e0dfe58b7a431659754fdf3f186c529afbe65 # v3
         id: cf
         with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           wranglerVersion: ${{ env.WRANGLER_VERSION }}
           packageManager: npm
           command: deploy
+
+      - name: Set runtime secrets
+        env:
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ALLOWED_EMAILS: ${{ secrets.ALLOWED_EMAILS }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          JWT_REFRESH_SECRET: ${{ secrets.JWT_REFRESH_SECRET }}
+        run: |
+          set -euo pipefail
+          for kv in ALLOWED_EMAILS JWT_SECRET JWT_REFRESH_SECRET; do
+            printf '%s' "${!kv}" | npx --yes wrangler@${WRANGLER_VERSION} secret put "$kv"
+          done
