@@ -141,6 +141,26 @@ pub struct PreloginResponse {
     pub kdf_parallelism: Option<i32>,
     pub kdf_settings: PreloginKdfSettings,
     pub salt: Option<String>,
+    pub master_password_policy: Option<MasterPasswordPolicyResponse>,
+}
+
+/// Master password policy returned in `/identity/accounts/prelogin`.
+///
+/// Older Bitwarden clients (mobile / desktop / browser extension) read
+/// `MinLength` from this object to validate the registration form. By sending
+/// it we can relax the client-side minimum below Bitwarden's hardcoded default
+/// of 12 characters without touching any client binary.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct MasterPasswordPolicyResponse {
+    pub object: String,
+    pub min_length: i32,
+    pub min_complexity: i32,
+    pub require_upper: bool,
+    pub require_lower: bool,
+    pub require_numbers: bool,
+    pub require_special: bool,
+    pub enforce_on_login: bool,
 }
 
 #[derive(Debug, Serialize)]

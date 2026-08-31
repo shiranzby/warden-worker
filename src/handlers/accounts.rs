@@ -27,6 +27,7 @@ use crate::{
         user::{
             AvatarData, ChangeKdfRequest, ChangePasswordRequest, MasterPasswordUnlockData,
             PasswordHintRequest, PasswordOrOtpData, PreloginKdfSettings, PreloginResponse,
+            MasterPasswordPolicyResponse,
             ProfileData, RegisterRequest, RotateKeyRequest, User,
         },
     },
@@ -177,6 +178,18 @@ pub async fn prelogin(
         (None, None, None, None)
     };
 
+    let min_mp_len = crate::handlers::get_env_usize(&env, "MIN_MASTER_PASSWORD_LENGTH", 8) as i32;
+    let master_password_policy = MasterPasswordPolicyResponse {
+        object: "masterPasswordPolicy".to_string(),
+        min_length: min_mp_len,
+        min_complexity: 0,
+        require_upper: false,
+        require_lower: false,
+        require_numbers: false,
+        require_special: false,
+        enforce_on_login: false,
+    };
+
     Ok(Json(PreloginResponse {
         kdf: kdf_type.unwrap_or(KDF_TYPE_PBKDF2),
         kdf_iterations: kdf_iterations.unwrap_or(DEFAULT_PBKDF2_ITERATIONS),
@@ -189,6 +202,7 @@ pub async fn prelogin(
             parallelism: kdf_parallelism,
         },
         salt: None,
+        master_password_policy: Some(master_password_policy),
     }))
 }
 
