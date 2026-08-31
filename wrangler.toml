@@ -54,6 +54,7 @@ html_handling = "auto-trailing-slash"
 run_worker_first = ["/api/*", "/identity/*", "/notifications/*"]
 
 [vars]
+DISABLE_USER_REGISTRATION = "false"  # enable registration button in web vault
 # Base URL for the worker, used for generating up/down URLs for files.
 # If not set, the base URL will be extracted from the incoming request.
 # BASE_URL = "https://vault.example.com"
