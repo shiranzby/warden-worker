@@ -77,22 +77,52 @@ tr[appvaultcipherrow] td {
 }
 
 /* ======================================================================
- * C. 「选择」按钮条
+ * C. 「名称」行里的表头工具行(选择 / 窄屏新增) + 窄屏筛选抽屉
+ *
+ *    main#main-content 被设为定位容器: custom.js 把应用原本的「新增」按钮
+ *    用 position:absolute + translate 平移到表头槽位。为什么不能复制一份按钮:
+ *    点「新增」弹出的是 cdk-overlay-pane.bit-menu-panel, 锚定"触发按钮"定位,
+ *    复制出来的按钮点开, 菜单仍然弹在原按钮旁边。搬原按钮才能让浮层跟着走。
  * ====================================================================== */
-.warden-selbar {
-  display: flex;
-  justify-content: flex-end;
-  padding: 2px 2px 8px;
+@media (max-width: 768px) {
+  /* 只在窄屏挂定位容器, 免得影响桌面端应用自身的绝对定位元素 */
+  main#main-content {
+    position: relative;
+  }
 }
+
+table thead th.warden-name-th {
+  position: relative;
+}
+
+#warden-headbar {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+/* 「新增」按钮的落点槽位; 宽高由 js 按真实按钮测量后回填 */
+.warden-headslot {
+  display: inline-block;
+  flex: 0 0 auto;
+}
+
 .warden-selbar-toggle {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  flex: 0 0 auto;
   border: 1px solid rgba(0, 0, 0, 0.22);
   background: transparent;
   color: var(--color-text-secondary, #4b5563);
   border-radius: 999px;
-  padding: 4px 13px;
+  padding: 4px 12px;
   font-size: 12px;
   font-family: inherit;
   line-height: 1.4;
@@ -106,6 +136,63 @@ tr[appvaultcipherrow] td {
   stroke-width: 2.2;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+.warden-selbar-toggle.warden-selbar-on {
+  border-color: #175ddc;
+  color: #175ddc;
+  background: rgba(23, 93, 220, 0.08);
+}
+
+/* ---- 窄屏筛选抽屉: 默认收起, 点按钮展开成竖排面板 ---- */
+.warden-filterbar {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .warden-filterbar {
+    display: block;
+    margin: 0 0 8px;
+  }
+  .warden-filter-toggle {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    width: 100%;
+    box-sizing: border-box;
+    height: 36px;
+    padding: 0 11px;
+    border: 1px solid rgba(0, 0, 0, 0.16);
+    border-radius: 9px;
+    background: transparent;
+    color: inherit;
+    font-family: inherit;
+    font-size: 13.5px;
+    cursor: pointer;
+  }
+  .warden-filter-toggle svg {
+    width: 15px;
+    height: 15px;
+    flex: 0 0 auto;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.9;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .warden-filter-toggle .warden-filter-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .warden-filter-toggle .warden-filter-caret {
+    transition: transform 0.18s ease;
+  }
+  body.warden-filter-open .warden-filter-toggle .warden-filter-caret {
+    transform: rotate(180deg);
+  }
 }
 
 /* ======================================================================
@@ -309,6 +396,21 @@ body.warden-authview-on .warden-authview {
   .warden-auth-user {
     color: #9ca3af;
   }
+  .warden-selbar-toggle.warden-selbar-on {
+    border-color: #7aa7ff;
+    color: #7aa7ff;
+    background: rgba(122, 167, 255, 0.12);
+  }
+  .warden-filter-toggle {
+    border-color: rgba(255, 255, 255, 0.18);
+  }
+  body.warden-filter-open main#main-content app-vault-filter ul.filter-options {
+    background: #262b33;
+    border-color: rgba(255, 255, 255, 0.12);
+  }
+  body.warden-filter-open #warden-filterbar {
+    background: #1f2329;
+  }
 }
 
 /* ======================================================================
@@ -327,7 +429,8 @@ body.warden-authview-on .warden-authview {
     overflow-x: hidden !important;
   }
   /* 页头的负边距与 main 的 padding 联动, 一起收紧 */
-  main#main-content app-header > header {
+  /* 真实结构是 app-header > bit-header > header, 用 ">" 会一个都匹配不到 */
+  main#main-content app-header header {
     margin-left: -12px !important;
     margin-right: -12px !important;
     margin-top: -8px !important;
@@ -377,50 +480,76 @@ body.warden-authview-on .warden-authview {
   }
   app-vault-filter > div > div > div.tw-p-5 {
     display: block !important;
-    padding: 0 0 10px !important;
-    overflow-x: auto !important;
-    overflow-y: hidden !important;
-    white-space: nowrap !important;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-  }
-  app-vault-filter > div > div > div.tw-p-5::-webkit-scrollbar {
-    display: none;
+    padding: 0 !important;
+    white-space: normal !important;
+    overflow: visible !important;
   }
   app-vault-filter bit-search {
     display: block !important;
     margin-bottom: 8px !important;
   }
-  app-vault-filter div.filter {
-    display: inline-block !important;
-    vertical-align: top !important;
-    margin: 0 6px 0 0 !important;
-  }
-  app-vault-filter app-filter-section {
-    display: inline-block !important;
-  }
   app-vault-filter .filter-heading,
   app-vault-filter hr {
     display: none !important;
   }
-  app-vault-filter ul.filter-options {
-    display: inline-flex !important;
-    flex-wrap: nowrap !important;
-    gap: 6px !important;
-    padding: 0 !important;
+
+  /* 收起的抽屉: 11 个 chip 不再横向铺满一整行 */
+  body:not(.warden-filter-open) main#main-content app-vault-filter div.filter,
+  body:not(.warden-filter-open) main#main-content app-vault-filter app-filter-section,
+  body:not(.warden-filter-open) main#main-content app-vault-filter ul.filter-options {
+    display: none !important;
+  }
+  /* 展开后: 竖排成一张可滚动面板 */
+  body.warden-filter-open main#main-content app-vault-filter app-filter-section,
+  body.warden-filter-open main#main-content app-vault-filter div.filter {
+    display: block !important;
+    width: 100% !important;
     margin: 0 !important;
   }
-  app-vault-filter ul.filter-options li {
+  body.warden-filter-open main#main-content app-vault-filter ul.filter-options {
+    display: flex !important;
+    flex-direction: column !important;
+    flex-wrap: nowrap !important;
+    gap: 2px !important;
+    padding: 6px !important;
+    margin: 0 0 8px !important;
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    border-radius: 10px;
+    background: #ffffff;
+  }
+  /* 11 个筛选项竖起来比一屏还长, 整块给个高度上限内部滚动;
+     按钮吸顶, 滚到下面也关得掉 */
+  /* ⚠️ 上面的 F3 段有一条 `overflow: visible !important`, !important 不看优先级,
+     这里必须同样带 !important 才压得住(本选择器含 id, 加权更高, 胜) */
+  body.warden-filter-open main#main-content app-vault-filter div.tw-p-5 {
+    max-height: 58vh !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+  body.warden-filter-open #warden-filterbar {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    padding-top: 2px;
+    margin-bottom: 6px !important;
+    background: #ffffff;
+  }
+  body.warden-filter-open main#main-content app-vault-filter ul.filter-options li {
     white-space: nowrap !important;
     flex: 0 0 auto !important;
+    width: 100% !important;
   }
-  app-vault-filter ul.filter-options li > * {
-    border-radius: 999px !important;
-    padding-top: 6px !important;
-    padding-bottom: 6px !important;
-    min-height: 34px !important;
-    display: inline-flex !important;
+  body.warden-filter-open main#main-content app-vault-filter ul.filter-options li > * {
+    display: flex !important;
     align-items: center !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    border-radius: 7px !important;
+    padding: 8px 10px !important;
+    min-height: 36px !important;
+    text-align: left !important;
   }
 
   /* F4. 徽章窄屏收紧 */
@@ -541,5 +670,85 @@ body.warden-authview-on .warden-authview {
   }
   .warden-tabbar a.warden-tab-active {
     color: #7aa7ff;
+  }
+}
+
+/* ======================================================================
+ * H. 窄屏留白压缩
+ *    只收紧"块与块之间"的间距, 不改结构也不改配色; 桌面端完全不受影响。
+ *    统一覆盖 main 里的 Tailwind 间距类, 是为了让生成器/账户/设置等所有页面
+ *    一起变紧凑, 而不必逐页写规则。
+ * ====================================================================== */
+@media (max-width: 768px) {
+  /* H1. 外壳: 页头那圈 24px 上下内边距是最大的一处浪费 */
+  main#main-content {
+    padding: 6px 10px 74px !important;
+  }
+  /* 真实结构是 app-header > bit-header > header, 用 ">" 会一个都匹配不到 */
+  main#main-content app-header header {
+    margin: -6px -10px 2px !important;
+    padding: 6px 10px 4px !important;
+    gap: 6px !important;
+  }
+
+  /* H2. 页面大标题(30px)收一档 */
+  main#main-content h1 {
+    font-size: 22px !important;
+    line-height: 1.3 !important;
+  }
+
+  /* H3. 通用纵向间距节流 */
+  main#main-content .tw-mb-6 { margin-bottom: 12px !important; }
+  main#main-content .tw-mb-5 { margin-bottom: 10px !important; }
+  main#main-content .tw-mb-4 { margin-bottom: 8px !important; }
+  main#main-content .tw-mb-3 { margin-bottom: 6px !important; }
+  main#main-content .tw-mt-16 { margin-top: 24px !important; }
+  main#main-content .tw-mt-6 { margin-top: 12px !important; }
+  main#main-content .tw-py-6 {
+    padding-top: 8px !important;
+    padding-bottom: 8px !important;
+  }
+
+  /* H4. 卡片 / 分区 / 表单 */
+  main#main-content bit-card {
+    padding: 12px !important;
+    margin-bottom: 8px !important;
+  }
+  main#main-content bit-section-header {
+    padding-bottom: 2px !important;
+  }
+  main#main-content section.tw-mb-5 {
+    margin-bottom: 12px !important;
+  }
+  main#main-content bit-form-field {
+    margin-bottom: 8px !important;
+  }
+  main#main-content aside.tw-mb-4 {
+    margin-bottom: 8px !important;
+    padding-top: 10px !important;
+    padding-bottom: 10px !important;
+  }
+
+  /* H5. 列表底部别再留一整屏空白 */
+  main#main-content .cdk-virtual-scroll-viewport {
+    padding-bottom: 12px !important;
+  }
+
+  /* H6. 筛选列的内边距由抽屉自己管, 顶掉通用规则 */
+  main#main-content app-vault-filter > div > div > div.tw-p-5 {
+    padding: 0 !important;
+  }
+
+  /* H7. 表头行收紧, 给「名称」行的工具按钮腾高度 */
+  table thead th.warden-name-th {
+    padding-top: 2px !important;
+    padding-bottom: 2px !important;
+  }
+  vault-new-cipher-menu button {
+    height: 32px !important;
+    min-height: 0 !important;
+    padding-left: 10px !important;
+    padding-right: 10px !important;
+    font-size: 13px !important;
   }
 }

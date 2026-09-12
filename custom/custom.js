@@ -1,13 +1,17 @@
 /*
- * warden-worker / shypwd.cc.cd — 自定义前端增强 (v3)
+ * warden-worker / shypwd.cc.cd — 自定义前端增强 (v4)
  *
  * 功能:
  *   1) 保险库列表每行末尾、三点菜单之前常显 TOTP 动态码
  *   2) 徽章下边缘 = 剩余时间进度条, 中间截断处显示剩余秒数, <5s 转红
- *   3) 首行"选择"按钮 -> 选择模式(放出复选框列, 应用自带的"全选"同时生效)
+ *   3) "名称"表头行兼作工具行: 右对齐放「选择」(窄屏连「新增」一起),
+ *      省掉原来单独一行的"选择"按钮条
+ *   4) 选择模式(放出复选框列, 应用自带的"全选"同时生效)
  *      + 底部批量操作条(全选 / 已选N项 / 移入回收站 / 取消)
- *   4) 独立的"验证码"页(复刻 Bitwarden Authenticator 卡片式列表)
- *   5) 窄屏底部标签栏(密码库/验证码/发送/工具/设置)
+ *   5) 窄屏筛选抽屉: 11 个筛选 chip 不再横着塞满一行, 改为按钮展开竖排面板
+ *   6) 独立的"验证码"页(复刻 Bitwarden Authenticator 卡片式列表)
+ *   7) 窄屏底部标签栏(密码库/验证码/发送/工具/设置)
+ *   8) 窄屏留白压缩(custom.css 段 H)
  *
  * 线上实测结论(勿轻易改动):
  *   - 该版本 Web Vault 的加解密跑在 Rust/WASM 核心里, 不走 crypto.subtle,
@@ -543,36 +547,203 @@
   }
 
   /* =====================================================================
-   * 7. "选择"按钮 + 选择模式
+   * 7. 表头工具行 —— 把「选择」(窄屏连「新增」)并入"名称"那一行
    *    应用自带每行复选框(aria-label="选择密码库项目")与表头全选(aria-label="全选"),
    *    平时用 CSS 把这两列塌缩为 0, 进入选择模式再放出来。
+   *
+   *    ⚠️ 窄屏的「新增」不能复制一份: 它弹出的 cdk-overlay-pane.bit-menu-panel
+   *       是锚定"触发按钮"的浮层, 复制出来的按钮点开, 菜单仍弹在按钮旁边的原位置。
+   *       做法是保留原按钮, 用 position:absolute + translate 把它平移到表头槽位里
+   *       (容器 main#main-content 在 CSS 里已设 position:relative), 浮层自然跟着槽位走。
    * ===================================================================== */
 
+  var NARROW_PX = 768;
   var selecting = false;
 
-  function ensureSelectBar() {
-    if (document.getElementById("warden-selbar")) return;
-    var items = document.querySelector("app-vault-items");
-    var host = items ? items.parentNode : null;
-    if (!host || !items) return;
+  function isNarrow() {
+    return window.innerWidth <= NARROW_PX;
+  }
 
-    var bar = document.createElement("div");
-    bar.id = "warden-selbar";
-    bar.className = "warden-selbar";
+  function nameTh() {
+    var tr = document.querySelector("table thead tr");
+    if (!tr) return null;
 
-    var seed = document.createElement("button");
-    seed.type = "button";
-    seed.className = "warden-selbar-toggle";
-    seed.innerHTML =
-      '<svg viewBox="0 0 24 24" aria-hidden="true">' +
-      '<path d="M4 7l4.5 5L4 17"/><path d="M12 19h8"/></svg><span>选择</span>';
-    seed.addEventListener("click", function (ev) {
-      ev.stopPropagation();
-      setSelecting(!selecting);
-    });
+    var cached = tr.querySelector("th.warden-name-th");
+    if (cached) return cached;
 
-    bar.appendChild(seed);
-    host.insertBefore(bar, items);
+    var ths = tr.children;
+    for (var i = 0; i < ths.length; i++) {
+      // ⚠️ 只比对这个 th 直属的文本节点。工具行塞进去以后 th.textContent 会变成
+      //    "名称 选择", 用 textContent 比对第二轮就找不到这一列了, 会把已经
+      //    搬过去的「新增」还原、顺手把筛选抽屉删掉。
+      var own = "";
+      for (var n = 0; n < ths[i].childNodes.length; n++) {
+        if (ths[i].childNodes[n].nodeType === 3) own += ths[i].childNodes[n].nodeValue;
+      }
+      if (norm(own) === "名称") {
+        ths[i].classList.add("warden-name-th");
+        return ths[i];
+      }
+    }
+    return null;
+  }
+
+  function resetNewBtn() {
+    var m = document.querySelector("vault-new-cipher-menu");
+    if (!m || m.style.position !== "absolute") return;
+    m.style.position = "";
+    m.style.left = "";
+    m.style.top = "";
+    m.style.zIndex = "";
+    m.style.transform = "";
+  }
+
+  function positionNewBtn() {
+    var menu = document.querySelector("vault-new-cipher-menu");
+    var bar = document.getElementById("warden-headbar");
+    var slot = bar ? bar.querySelector(".warden-headslot") : null;
+    var host = document.querySelector("main#main-content");
+
+    if (!menu || !slot || !host || !isNarrow()) {
+      resetNewBtn();
+      return;
+    }
+
+    // 先按原尺寸校准槽位, 免得按钮比槽宽而压到「选择」
+    var mr0 = menu.getBoundingClientRect();
+    if (mr0.width) {
+      var w = Math.round(mr0.width) + "px";
+      if (slot.style.width !== w) slot.style.width = w;
+    }
+    if (mr0.height) {
+      var h = Math.round(mr0.height) + "px";
+      if (slot.style.height !== h) slot.style.height = h;
+    }
+
+    var sr = slot.getBoundingClientRect();
+    var hr = host.getBoundingClientRect();
+    if (!sr.height) return;
+
+    menu.style.position = "absolute";
+    menu.style.left = "0";
+    menu.style.top = "0";
+    menu.style.zIndex = "4";
+    menu.style.transform =
+      "translate(" + Math.round(sr.left - hr.left + host.scrollLeft) + "px," +
+      Math.round(sr.top - hr.top + host.scrollTop) + "px)";
+  }
+
+  function ensureHeadbar() {
+    var th = nameTh();
+    if (!th) return;
+
+    var bar = th.querySelector("#warden-headbar");
+    if (!bar) {
+      bar = document.createElement("div");
+      bar.id = "warden-headbar";
+
+      var slot = document.createElement("span");
+      slot.className = "warden-headslot";
+      bar.appendChild(slot);
+
+      var seed = document.createElement("button");
+      seed.type = "button";
+      seed.className = "warden-selbar-toggle";
+      seed.innerHTML =
+        '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+        '<path d="M4 7l4.5 5L4 17"/><path d="M12 19h8"/></svg><span>选择</span>';
+      seed.addEventListener("click", function (ev) {
+        ev.stopPropagation();
+        setSelecting(!selecting);
+      });
+      bar.appendChild(seed);
+
+      th.appendChild(bar);
+    }
+
+    var sl = bar.querySelector(".warden-headslot");
+    if (sl) sl.style.display = isNarrow() ? "" : "none";
+    positionNewBtn();
+  }
+
+  /* ---- 7.1 窄屏筛选抽屉 ------------------------------------------------
+   *     原本 11 个筛选 chip 横着塞满一行还被裁掉一半, 改成"一个按钮 + 展开面板"。
+   *     只切显隐, 不动应用自己的筛选 DOM。
+   * -------------------------------------------------------------------- */
+
+  function ensureFilterToggle() {
+    var root = document.querySelector("app-vault-filter");
+    if (!root) return;
+
+    if (!document.getElementById("warden-filterbar")) {
+      var bar = document.createElement("div");
+      bar.id = "warden-filterbar";
+      bar.className = "warden-filterbar";
+
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "warden-filter-toggle";
+      btn.innerHTML =
+        '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+        '<path d="M4 6h16M7 12h10M10 18h4"/></svg>' +
+        '<span class="warden-filter-label"></span>' +
+        '<svg class="warden-filter-caret" viewBox="0 0 24 24" aria-hidden="true">' +
+        '<path d="M7 10l5 5 5-5"/></svg>';
+      btn.addEventListener("click", function (ev) {
+        ev.stopPropagation();
+        document.body.classList.toggle("warden-filter-open");
+      });
+      bar.appendChild(btn);
+      // 放在搜索框下面(与原来 chip 条的位置一致); 拿不到搜索框就退到容器最前面
+      var panel = root.querySelector("div.tw-p-5") || root;
+      var search = root.querySelector("bit-search");
+      var anchor = search && search.closest ? search.closest("div") : null;
+      if (anchor && anchor.parentNode === panel) {
+        panel.insertBefore(bar, anchor.nextSibling);
+      } else {
+        panel.insertBefore(bar, panel.firstChild);
+      }
+
+      // 点中某个筛选后自动收起
+      root.addEventListener("click", function (ev) {
+        var t = ev.target;
+        var hit = t && t.closest ? t.closest("li.filter-option, a.filter-button") : null;
+        if (!hit) return;
+        setTimeout(function () {
+          document.body.classList.remove("warden-filter-open");
+          updateFilterToggle();
+        }, 120);
+      });
+    }
+    updateFilterToggle();
+  }
+
+  function updateFilterToggle() {
+    var label = document.querySelector("#warden-filterbar .warden-filter-label");
+    if (!label) return;
+    // 应用自身会把当前筛选名写进页面标题
+    var h = document.querySelector("app-vault-header h1");
+    var txt = h ? (h.textContent || "").trim() : "";
+    label.textContent = txt || "所有项目";
+  }
+
+  function dropFilterToggle() {
+    var bar = document.getElementById("warden-filterbar");
+    if (bar && bar.parentNode) bar.parentNode.removeChild(bar);
+    document.body.classList.remove("warden-filter-open");
+  }
+
+  // 只在保险库列表页生效的"外壳"
+  function syncChrome() {
+    ensureTabbar();
+    if (nameTh()) {
+      ensureHeadbar();
+      if (isNarrow()) ensureFilterToggle();
+      else dropFilterToggle();
+    } else {
+      dropFilterToggle();
+      resetNewBtn();
+    }
   }
 
   function setSelecting(on) {
@@ -644,6 +815,15 @@
 
   function updateSelbar() {
     ensureBulkBar();
+
+    var seed = document.querySelector("#warden-headbar .warden-selbar-toggle");
+    if (seed) {
+      var lb = seed.querySelector("span");
+      if (lb) lb.textContent = selecting ? "取消" : "选择";
+      if (selecting) seed.classList.add("warden-selbar-on");
+      else seed.classList.remove("warden-selbar-on");
+    }
+
     var bar = document.getElementById("warden-bulkbar");
     if (!bar) return;
 
@@ -946,12 +1126,10 @@
       var c = findCipher(row);
       if (c) insertTotp(row, c);
     }
-
-    ensureSelectBar();
-    ensureTabbar();
   }
 
   async function boot() {
+    syncChrome();
     if (!SYNC) return;
     if (SYNC !== indexBuiltFor) {
       var ok = await buildIndex(SYNC);
@@ -969,7 +1147,16 @@
 
     window.addEventListener("hashchange", function () {
       updateTabbar();
-      if (currentRoute().indexOf("/vault") !== 0) closeAuthView();
+      if (currentRoute().indexOf("/vault") !== 0) {
+        closeAuthView();
+        document.body.classList.remove("warden-filter-open");
+      }
+    });
+
+    // 断点切换(横竖屏)时重排"新增"按钮的落点
+    window.addEventListener("resize", function () { syncChrome(); });
+    window.addEventListener("orientationchange", function () {
+      setTimeout(syncChrome, 250);
     });
 
     document.addEventListener("change", function (ev) {
@@ -993,7 +1180,7 @@
     });
     observer.observe(document.body, { childList: true, subtree: true });
 
-    console.log(LOG, "injected (v3)");
+    console.log(LOG, "injected (v4)");
   }
 
   if (document.readyState === "loading") {
