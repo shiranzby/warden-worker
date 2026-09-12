@@ -400,47 +400,75 @@
     var s = document.createElement("style");
     s.id = "warden-totp-style";
     s.textContent =
-      /* 盒体: 始终是一个"完整的圆角矩形"。四角用同一个 9px 半径, 内层直角靠
-         overflow:hidden 裁掉 —— 而不是给下层单独写圆角(那样看得出是拼的两段)。
-         用 inline-block 是为了留在单元格的基线流里, 由 table-cell 的
-         vertical-align:middle 把它相对整行居中。 */
+      /* 结构(照用户给的设计图):
+           ┌────────────┐    .warden-totp-chip  淡蓝色圆角矩形 —— 完整, **不裁剪**
+           │  524 453   │    .warden-totp-body  码, 铺满整个盒体 -> 落在矩形正中
+           └─────  ────┘    .warden-totp-clip  只把"下面那条线"的中间挖掉 20px,
+              └ 27 ┘           于是那条线被裁成左右两条(1px 边框 + 3px 进度条)
+                             .warden-totp-sec   秒数, 骑在"下面的边"上(水平+垂直居中)
+         为什么要把"裁剪"单独做一层: 只有那条**线**要被挖断, 底色不能挖 ——
+         秒数的上半截落在淡蓝色盒体里、下半截落到页面上, 跟设计图一致。 */
       ".warden-totp-code{position:relative;display:inline-block;vertical-align:middle;" +
       "margin-right:8px;box-sizing:border-box;" +
-      "min-width:84px;height:46px;border:1px solid #b9cdf3;border-radius:9px;background:#eef3ff;" +
-      "overflow:hidden;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent}" +
-      ".warden-totp-code:hover{background:#e3ecff}" +
-      /* 码区铺满"整个盒体"(inset:0), 码才落在矩形的正中, 而不是"矩形减底栏"的正中 */
+      "min-width:84px;height:46px;border-radius:9px;background:transparent;" +
+      "cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent}" +
+      /* 淡蓝底: 一个完整的圆角矩形 */
+      ".warden-totp-chip{position:absolute;inset:0;border-radius:9px;background:#eef3ff}" +
+      ".warden-totp-code:hover .warden-totp-chip{background:#e3ecff}" +
+      /* 裁剪层: 底部中间挖掉 20px 宽 / 4px 深的一块(正好盖住 1px 边框 + 3px 进度条)。
+         ⚠️ 宽度要和 JS 里 GAP 常量保持一致, 否则线断的位置和时长换算对不上。 */
+      ".warden-totp-clip{position:absolute;inset:0;" +
+      "clip-path:polygon(0 0,100% 0,100% 100%," +
+      "calc(50% + 10px) 100%," +
+      "calc(50% + 10px) calc(100% - 4px)," +
+      "calc(50% - 10px) calc(100% - 4px)," +
+      "calc(50% - 10px) 100%," +
+      "0 100%)}" +
+      /* 1px 边框。用 inset box-shadow 而不是 border: 不占盒模型尺寸,
+         这样它和进度条严格叠在同一条基线上, 一起被上面那把剪刀裁。 */
+      ".warden-totp-ring{position:absolute;inset:0;border-radius:9px;box-shadow:inset 0 0 0 1px #b9cdf3}" +
       ".warden-totp-body{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}" +
       ".warden-totp-digits{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;" +
       "font-size:13px;font-weight:700;letter-spacing:.05em;color:#175ddc;line-height:1;white-space:nowrap}" +
-      /* 倒计时进度: 只在下沿画 3px 一条线, 不再做成 16px 高的"底栏"(那才是丑的根源) */
-      ".warden-totp-fill{position:absolute;left:0;bottom:0;height:3px;width:100%;" +
+      /* 进度条: 沿下沿 3px。宽度由 JS 按"缺口不计入时长"换算成 px 写进来, 不用百分比 */
+      ".warden-totp-fill{position:absolute;left:0;bottom:0;height:3px;width:0;" +
       "background:#175ddc;transition:width .9s linear}" +
-      /* 下边中间"挖空"的缺口: 与盒体同色, 同时盖住 1px 边框和 3px 进度线,
-         于是底边在中间断开一段, 看上去就是被挖掉一块给秒数腾地方。
-         bottom:-1px 是为了连边框那 1px 一起盖住, 超出盒体的部分由 overflow:hidden 裁掉。
-         background-color 用 inherit, 这样 hover / 转红时缺口跟着盒子一起变色。 */
-      ".warden-totp-notch{position:absolute;left:50%;transform:translateX(-50%);" +
-      "bottom:-1px;width:38px;height:17px;background-color:inherit}" +
-      /* 秒数: 坐在缺口里, 相对"下面的边"水平居中 + 垂直居中 */
-      ".warden-totp-sec{position:absolute;left:50%;transform:translateX(-50%);bottom:0;" +
-      "width:38px;height:16px;display:flex;align-items:center;justify-content:center;" +
+      /* 秒数: 骑在"下面的边"上 —— 垂直中心正好落在下沿, 所以 bottom 是负值 */
+      ".warden-totp-sec{position:absolute;left:50%;transform:translateX(-50%);bottom:-7px;" +
+      "width:20px;height:13px;display:flex;align-items:center;justify-content:center;" +
       "font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;" +
       "font-size:10px;font-weight:700;line-height:1;color:#175ddc}" +
-      ".warden-totp-low{border-color:#f0b4b4;background:#fdecec}" +
+      ".warden-totp-low .warden-totp-chip{background:#fdecec}" +
+      ".warden-totp-low .warden-totp-ring{box-shadow:inset 0 0 0 1px #f0b4b4}" +
       ".warden-totp-low .warden-totp-digits{color:#c62828}" +
       ".warden-totp-low .warden-totp-fill{background:#e24b4a}" +
       ".warden-totp-low .warden-totp-sec{color:#c62828}" +
-      ".warden-totp-copied{background:#dff3e6!important;border-color:#9fd8b6!important}" +
+      ".warden-totp-copied .warden-totp-chip{background:#dff3e6!important}" +
+      ".warden-totp-copied .warden-totp-ring{box-shadow:inset 0 0 0 1px #9fd8b6!important}" +
       ".warden-totp-copied .warden-totp-digits{color:#1b7a44!important}";
     document.head.appendChild(s);
   }
 
-  /* 盒体 -> 码区(body) + 下沿进度线(fill) + 下边缺口(notch) + 缺口里的秒数(sec) */
+  /* 外层(透明) -> 淡蓝底(chip) + [clip 裁剪层: 1px 边框(ring) + 进度条(fill)]
+     + 码区(body) + 骑在下边线上的秒数(sec) */
   function paintBadgeStructure(el) {
     if (el.__built) return;
     el.__built = true;
     el.textContent = "";
+
+    /* 淡蓝底不参与裁剪, 单独一层 */
+    var chip = document.createElement("span");
+    chip.className = "warden-totp-chip";
+
+    /* ring 与 fill 必须同住一个裁剪层, 这样"边框断开"和"进度条断开"是同一刀切出来的 */
+    var clip = document.createElement("span");
+    clip.className = "warden-totp-clip";
+    var ring = document.createElement("span");
+    ring.className = "warden-totp-ring";
+    var fill = document.createElement("i");
+    fill.className = "warden-totp-fill";
+    clip.appendChild(ring);
+    clip.appendChild(fill);
 
     var body = document.createElement("span");
     body.className = "warden-totp-body";
@@ -449,19 +477,13 @@
     digits.textContent = "--- ---";
     body.appendChild(digits);
 
-    var fill = document.createElement("i");
-    fill.className = "warden-totp-fill";
-
-    var notch = document.createElement("span");
-    notch.className = "warden-totp-notch";
-
     var sec = document.createElement("span");
     sec.className = "warden-totp-sec";
     sec.textContent = "--";
 
+    el.appendChild(chip);
+    el.appendChild(clip);
     el.appendChild(body);
-    el.appendChild(fill);
-    el.appendChild(notch);
     el.appendChild(sec);
 
     el.__digits = digits;
@@ -488,14 +510,34 @@
     if (el.__digits) el.__digits.textContent = groupCode(code);
   }
 
-  /* 时间条/秒数: 每秒更新, 不做加密运算 */
+  /* 缺口宽度(px)。必须与 ensureStyle 里 clip-path 的 "50% ± 10px" 保持一致。 */
+  var GAP = 20;
+
+  /* 时间条/秒数: 每秒更新, 不做加密运算。
+     ⚠️ 缺口那一段**不计入时长** —— 所以宽度不能用百分比, 要按"有效长度"换算成 px:
+        被裁开的两条线共同覆盖整个周期, 于是每条线正好代表 period/2 秒(默认 15 秒)。
+        进度条从左往右推进, 越过缺口时要把缺口宽度补回来(缺口本身被 clip-path 裁掉, 看不见)。 */
   function paintTimer(el) {
     var period = parseFloat(el.dataset.period) || STEP;
     var now = Math.floor(Date.now() / 1000);
     var remain = period - (now % period);
 
     if (el.__sec) el.__sec.textContent = String(remain);
-    if (el.__fill) el.__fill.style.width = (remain / period * 100).toFixed(1) + "%";
+
+    if (el.__fill) {
+      /* 盒体宽度只量一次并缓存 —— 每秒对全部徽章读 offsetWidth 会强制同步布局 */
+      var W = el.__w;
+      if (!W) {
+        W = el.offsetWidth;
+        if (W) el.__w = W;
+        else W = 84;            // 还没上屏, 本轮先用默认值, 下秒再量
+      }
+      var track = W - GAP;                          // 两条线的总长(缺口不占时长)
+      var lit = (remain / period) * track;          // 剩余时间映射到多长
+      var w = lit <= track / 2 ? lit : lit + GAP;   // 越过缺口就把缺口宽度补回来
+      el.__fill.style.width = w.toFixed(1) + "px";
+    }
+
     el.classList.toggle("warden-totp-low", remain <= 5);
   }
 
@@ -1034,22 +1076,51 @@
     return t.indexOf("克隆") !== -1 || t.indexOf("归档") !== -1;
   }
 
+  /* 文案: 这个动作改的是 Bitwarden 的"文件夹"(cipher.folderId), 不是标签体系,
+     所以用 bwi-folder + 「文件夹」。三个字与相邻的 收藏/编辑/附件/克隆/归档/删除
+     是同一个量级, 比原来的「添加到文件夹」短一截。想换词只改这两个常量即可。 */
+  var FOLDER_ITEM_LABEL = "文件夹";
+  var FOLDER_ITEM_ICON = "bwi-folder";
+
   function injectFolderItem(panel) {
     if (!panel || panel.querySelector(".warden-menu-fold")) return;
     var box = panel.querySelector('[role="menu"]') || panel;
-    var last = box.querySelector('button[role="menuitem"], button');
-    if (!last) return;
+    var btns = box.querySelectorAll('button[role="menuitem"], button');
+    if (!btns.length) return;
+
+    /* 位置: 「归档」之下、「删除」之上。
+       ⚠️ class 必须抄"删除"**前面**那一项 —— 删除带 tw-text-fg-danger /
+          hover:tw-bg-bg-danger-soft, 抄它的话我们这项也会跟着变成红色危险项。 */
+    var del = null;
+    for (var i = 0; i < btns.length; i++) {
+      if ((btns[i].innerText || "").trim().indexOf("删除") === 0) { del = btns[i]; break; }
+    }
+    var styleSrc = (del && del.previousElementSibling && del.previousElementSibling.tagName === "BUTTON")
+      ? del.previousElementSibling
+      : (btns.length > 1 ? btns[btns.length - 2] : btns[0]);
+
     var item = document.createElement("button");
     item.type = "button";
-    item.className = last.className + " warden-menu-fold";
+    item.className = styleSrc.className + " warden-menu-fold";
     item.setAttribute("role", "menuitem");
-    item.textContent = "添加到文件夹";
+    /* 与应用自带菜单项**逐层同构**(button > div.tw-flex > span.tw-flex > span.tw-truncate > i + 文本),
+       于是字号/行高/图标列宽/hover 底色全部自动继承, 不用我们补任何样式。 */
+    item.innerHTML =
+      '<div class="tw-flex tw-w-full tw-justify-between tw-items-center tw-gap-2">' +
+        '<span class="tw-flex tw-gap-2 tw-items-center tw-overflow-hidden tw-text-sm tw-font-medium">' +
+          '<span class="tw-truncate"><i aria-hidden="true" class="bwi bwi-fw ' + FOLDER_ITEM_ICON + '"></i> ' +
+            FOLDER_ITEM_LABEL +
+          '</span>' +
+        '</span>' +
+      '</div>';
     item.addEventListener("click", function (ev) {
       ev.preventDefault();
       ev.stopPropagation();
       openFolderPicker(lastMenuRow);
     });
-    box.appendChild(item);
+
+    if (del && del.parentNode) del.parentNode.insertBefore(item, del);
+    else box.appendChild(item);
   }
 
   /* 菜单浮层是动态插进 body 的, 借已有的 MutationObserver 一起扫 */
@@ -1073,7 +1144,12 @@
 
   function ensureSubNav() {
     var el = document.getElementById("warden-subnav");
-    var items = isNarrow() ? navSetFor(currentRoute()) : null;
+    var route = currentRoute();
+    var items = isNarrow() ? navSetFor(route) : null;
+
+    /* body 上的这个类 = "当前页有二级导航"。CSS 靠它把设置页那个大标题页头
+       (标题行 + 产品切换宫格) 藏掉 —— 窄屏上它们毫无信息量, 只是把内容往下压。 */
+    document.body.classList.toggle("warden-has-subnav", !!items);
 
     if (!items) {
       if (el && el.parentNode) el.parentNode.removeChild(el);
@@ -1083,14 +1159,32 @@
     var host = document.querySelector("main#main-content");
     if (!host) return;
 
+    var setKey = route.indexOf("/settings") === 0 ? "settings" : "tools";
+
+    /* 设置(5 项)和工具(3 项)是两套完全不同的条目, 必须整套重建 ——
+       v6 只在"首次创建"时填条目, 于是设置 -> 工具会看到残留的
+       「我的账户 / 安全 / …」。 */
+    if (el && el.getAttribute("data-set") !== setKey) {
+      if (el.parentNode) el.parentNode.removeChild(el);
+      el = null;
+    }
+
     if (!el) {
       el = document.createElement("nav");
       el.id = "warden-subnav";
       el.className = "warden-subnav";
+      el.setAttribute("data-set", setKey);
       el.addEventListener("click", function (ev) {
         var a = ev.target && ev.target.closest ? ev.target.closest("a[data-href]") : null;
         if (!a) return;
         ev.preventDefault();
+        /* 乐观高亮: 手指一抬起就变色, 不等 Angular 把新页面渲染完。
+           设置子页的渲染实测 130~210ms(4x 降速时), 真机约 1s; 高亮要是跟着一起等,
+           用户就会觉得"点了没反应"。 */
+        var ls = el.querySelectorAll("a[data-href]");
+        for (var n = 0; n < ls.length; n++) {
+          ls[n].classList.toggle("warden-subnav-on", ls[n] === a);
+        }
         location.hash = a.getAttribute("data-href");
       });
       for (var i = 0; i < items.length; i++) {
@@ -1101,22 +1195,26 @@
       }
     }
 
-    /* ⚠️ app-header 的父节点**不一定**是 main#main-content ——
-       密码库页是 app-vault, 设置页是 app-settings。所以"插到哪"就以哪个节点
-       为基准来比对, 拿 main 去比会永远不相等, 于是每轮都重插一遍, 把
-       账户卡片反复顶走。 */
+    /* 插到 app-header **之前**, 让二级导航成为页面第一行。
+       安全 / 两步登录 这类页面会在 app-header 里多渲染一行三级 tabs
+       (会话超时·主密码·两步登录·设备·密钥); chips 要是坐在页头下面,
+       这行 tabs 一出现就把 chips 整体往下顶, 切换时看着像"卡了一下"。
+       放到页头前面, chips 的纵向位置就恒定不动了。
+       ⚠️ app-header 的父节点**不是** main#main-content(密码库页是 app-vault,
+          设置页是 ng-component), 基准必须以它自己的父节点为准, 拿 main 比会永远不等。 */
     var hd = host.querySelector("app-header");
     var parent = (hd && hd.parentNode) || host;
-    if (el.parentNode !== parent) {
-      if (hd && hd.parentNode) parent.insertBefore(el, hd.nextSibling);
+    var misplaced = (el.parentNode !== parent) ||
+      (hd ? el.nextElementSibling !== hd : parent.firstElementChild !== el);
+    if (misplaced) {
+      if (hd && hd.parentNode) parent.insertBefore(el, hd);
       else host.insertBefore(el, host.firstChild);
     }
 
     // 高亮当前项。判变化再写, 否则会喂给 MutationObserver 空转。
-    var r = currentRoute();
     var links = el.querySelectorAll("a[data-href]");
     for (var k = 0; k < links.length; k++) {
-      var on = r.indexOf(links[k].getAttribute("data-href").replace(/^#/, "")) === 0;
+      var on = route.indexOf(links[k].getAttribute("data-href").replace(/^#/, "")) === 0;
       if (on !== links[k].classList.contains("warden-subnav-on")) {
         links[k].classList.toggle("warden-subnav-on", on);
       }
@@ -1162,17 +1260,16 @@
       });
     }
 
-    /* 插到页头之后、chips 导航之下。
+    /* 顺序定为: [chips 二级导航] [app-header(只剩三级 tabs)] [账户卡片]。
+       二级导航已经移到页头**之前**了, 所以卡片要挂到页头**之后** ——
+       不能再挂在 chips 后面, 否则会挤到页头和三级 tabs 中间去。
        同样以 app-header 自己的父节点为基准(main 并不是它爸爸)。 */
     var hd = host.querySelector("app-header");
     var parent = (hd && hd.parentNode) || host;
-    var sub = document.getElementById("warden-subnav");
-    var subHere = (sub && sub.parentNode === parent) ? sub : null;
-    var wantPrev = subHere || (hd && hd.parentNode ? hd : null);
-    if (card.parentNode !== parent || (wantPrev && card.previousElementSibling !== wantPrev)) {
-      if (subHere) parent.insertBefore(card, subHere.nextSibling);
-      else if (hd && hd.parentNode) parent.insertBefore(card, hd.nextSibling);
-      else host.insertBefore(card, host.firstChild);
+    var wantPrev = (hd && hd.parentNode) ? hd : null;
+    var anchor = (hd && hd.parentNode) ? hd.nextSibling : host.firstChild;
+    if (card.parentNode !== parent || card.previousElementSibling !== wantPrev) {
+      parent.insertBefore(card, anchor);
     }
 
     var p = (SYNC && SYNC.profile) || {};

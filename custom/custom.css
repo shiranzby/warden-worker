@@ -975,30 +975,31 @@ body.warden-ghost-menu .cdk-overlay-container {
     gap: 6px;
     margin: 0 0 8px;
     padding: 1px 0 2px;
-    overflow-x: auto;
-    overflow-y: hidden;
-    -webkit-overflow-scrolling: touch;
-    overscroll-behavior-x: contain;
-    scrollbar-width: none;
-  }
-  .warden-subnav::-webkit-scrollbar {
-    display: none;
+    /* v7: 五项等分之后不会再横向溢出, 滚动条那套统统不需要了 */
+    overflow: visible;
   }
   .warden-subnav a {
-    flex: 0 0 auto;
+    /* ← 等分宽度(用户明确要求"去等分按钮宽度")。
+       flex-basis:0 才真的是等分; 用 auto 的话宽度由文字长短决定, 又回到长短不一。 */
+    flex: 1 1 0;
+    min-width: 0;
     height: 32px;
-    padding: 0 13px;
+    padding: 0 6px;
     box-sizing: border-box;
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     border: 1px solid rgba(0, 0, 0, 0.16);
     border-radius: 999px;
     background: transparent;
     color: #4b5563;
-    font-size: 13px;
+    font-size: 12px;
     line-height: 1;
     text-decoration: none;
     white-space: nowrap;
+    overflow: hidden;
+    /* 消掉移动端 ~300ms 的点击延迟, 让"触摸即可变色" */
+    touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;
   }
   .warden-subnav a:active {
@@ -1024,6 +1025,28 @@ body.warden-ghost-menu .cdk-overlay-container {
     background: #7aa7ff;
     border-color: #7aa7ff;
     color: #11161d;
+  }
+}
+
+/* ======================================================================
+ * J2. 窄屏: 有二级导航时, 把设置/工具页那个大标题页头压掉
+ *     那个 app-header 里只有 h1 大标题 + 产品切换宫格 + 头像 —— 窄屏上全是冗余:
+ *     分区由底部标签栏标明, 二级由上面那条 chips 标明, 标题再把内容往下压就没意义了。
+ *     ⚠️ 只藏"标题行", **不能藏整个 header**: 安全 / 两步登录 / 设备 这类页面
+ *        的三级 tabs(会话超时·主密码·两步登录·设备·密钥)也渲染在 header 里的
+ *        [data-tabs] 里, 藏了整个 header 就没法在这些子页之间切换了。
+ * ====================================================================== */
+@media (max-width: 768px) {
+  body.warden-has-subnav main#main-content app-header header > div:not([data-tabs]) {
+    display: none !important;
+  }
+  /* 标题行没了之后, 页头自己的留白也要一起收掉, 否则 chips 和内容之间空出一道 */
+  body.warden-has-subnav main#main-content app-header header {
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    gap: 0 !important;
   }
 }
 
