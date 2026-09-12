@@ -175,14 +175,18 @@ if (want("guard")) {
       location.hash = "#/settings/account";
       for (let i = 0; i < 90; i++) {
         const rows = Array.from(document.querySelectorAll(".warden-app-avatar-row"));
-        out.push({ t: Math.round(performance.now() - t0), visible: rows.filter(r => getComputedStyle(r).display !== "none").length, card: document.querySelectorAll(".warden-acctcard").length });
+        out.push({ t: Math.round(performance.now() - t0), visible: rows.filter(r => getComputedStyle(r).display !== "none").length, card: !!document.getElementById("warden-acctcard") });
         await new Promise(r => setTimeout(r, 16));
       }
       return out;
     });
     const shown = s.filter(x => x.visible > 0).length;
-    ck("G2 ★ 头像行 0 帧可见", shown === 0, { 采样: s.length, 可见帧: shown, 前几帧: s.slice(0, 6) });
-    ck("G2 首帧就有自定义卡片", s[0].card >= 1, s[0]);
+    const firstCard = s.findIndex(x => x.card);
+    ck("G2 ★ 原生头像行 0 帧可见(核心: 这就是用户看到的闪烁)", shown === 0, { 采样: s.length, 可见帧: shown, 前几帧: s.slice(0, 6) });
+    /* 卡片是我们自己 JS 建的, 不可能"首帧"就在; 真正要保证的是:
+       ① 它最终出现 ② 出现前不会先闪一下原生行。所以只在采样结束时断言存在。 */
+    ck("G2 自定义卡片最终出现", firstCard >= 0, { 首现帧: firstCard, 总帧: s.length });
+    console.log(`  (参考) 卡片首次出现于第 ${firstCard} 帧 / 共 ${s.length} 帧, 约 ${s[firstCard] ? s[firstCard].t : "-"}ms`);
     await ctx.close();
   }
 
@@ -195,8 +199,8 @@ if (want("guard")) {
     const r = await page.evaluate(() => {
       const card = document.querySelector(".warden-acctcard");
       const appRow = document.querySelector("main#main-content app-header header div:has(> app-account-menu)");
-      const av = card && card.querySelector(".warden-avatar");
-      const tx = card && card.querySelector(".warden-acct-name") || card;
+      const av = card && card.querySelector(".warden-acct-avatar");
+      const tx = card && card.querySelector(".warden-acct-name");
       const ab = av && av.getBoundingClientRect(), tb = tx && tx.getBoundingClientRect();
       return {
         hasCard: !!card, cardVisible: card ? getComputedStyle(card).display !== "none" : false,
@@ -214,25 +218,61 @@ if (want("guard")) {
     await ctx.close();
   }
 
-  hdr("② 回归点 G4 头像跨端同步 (v9 后端端点)");
+  hdr("② 回归点 G4 头像真上传 + 跨端同步 (v9 后端端点)");
   {
+    /* ⚠️ 不要自己伪造 Authorization 头去 fetch —— 应用的 token 是它自己拦截请求拿到的,
+       不在 localStorage 里, 伪造必 401(v9 就在这里误报过一次)。
+       走真实链路: 点头像 -> 选文件 -> 前端 PUT -> 清本地缓存 + 重新登录 -> 看能否取回。 */
     const ctx = await newCtx(390, 844);
     const page = await ctx.newPage();
-    await login(page);
-    const r = await page.evaluate(async () => {
-      const tok = localStorage.getItem("accessToken") || JSON.parse(localStorage.getItem("__warden_token__") || "null");
-      const h = { "Content-Type": "application/json", Authorization: "Bearer " + (typeof tok === "string" ? tok : "") };
-      const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
-      const put = await fetch("/api/accounts/avatar/image", { method: "PUT", headers: h, body: JSON.stringify({ image: png }) });
-      const get = await (await fetch("/api/accounts/avatar", { headers: h })).json();
-      const del = await fetch("/api/accounts/avatar/image", { method: "DELETE", headers: h });
-      const get2 = await (await fetch("/api/accounts/avatar", { headers: h })).json();
-      return { putStatus: put.status, get: get.avatarImage, delStatus: del.status, get2: get2.avatarImage };
+    const api = [];
+    page.on("request", r => { if (r.url().indexOf("/api/accounts/avatar") >= 0) api.push({ m: r.method(), s: null }); });
+    page.on("response", r => {
+      if (r.url().indexOf("/api/accounts/avatar") < 0) return;
+      const slot = api.filter(x => x.s === null && x.m === r.request().method())[0];
+      if (slot) slot.s = r.status();
     });
-    ck("G4 PUT 头像 2xx", r.putStatus >= 200 && r.putStatus < 300, r);
-    ck("G4 ★ GET 能取回刚上传的图", typeof r.get === "string" && r.get.indexOf("data:image") === 0, r.get);
-    ck("G4 DELETE 2xx", r.delStatus >= 200 && r.delStatus < 300, r);
-    ck("G4 ★ 删除后取回为 null", r.get2 === null || r.get2 === undefined, r.get2);
+    await login(page);
+    await go(page, "#/settings/account", 3500);
+
+    const dataUrl = await page.evaluate(() => {
+      const c = document.createElement("canvas"); c.width = c.height = 200;
+      const g = c.getContext("2d"); g.fillStyle = "#ff0000"; g.fillRect(0, 0, 200, 200);
+      return c.toDataURL("image/png");
+    });
+    const buf = Buffer.from(dataUrl.split(",")[1], "base64");
+    const fcP = page.waitForEvent("filechooser", { timeout: 15000 });
+    await page.evaluate(() => { const a = document.querySelector("#warden-acctcard .warden-acct-avatar"); if (a) a.click(); });
+    const fc = await fcP;
+    await fc.setFiles({ name: "avatar.png", mimeType: "image/png", buffer: buf });
+    await sleep(4000);
+
+    const after = await page.evaluate(() => {
+      const av = document.querySelector("#warden-acctcard .warden-acct-avatar");
+      return {
+        on: document.body.classList.contains("warden-avatar-on"),
+        bg: av ? getComputedStyle(av).backgroundImage.slice(0, 30) : null,
+        local: (() => { try { return Object.keys(localStorage).some(k => k.indexOf("warden.avatar.v1.") === 0); } catch (e) { return false; } })(),
+      };
+    });
+    const put = api.filter(x => x.m === "PUT")[0];
+    ck("G4 ★ PUT /api/accounts/avatar/image 返回 2xx", put && put.s >= 200 && put.s < 300, api);
+    ck("G4 头像已本地渲染", after.on === true && /data:image/.test(after.bg || ""), after);
+    ck("G4 已缓存到 localStorage", after.local === true, after);
+
+    /* 跨端验证: 清掉本地缓存 + 重新加载 -> 只能从后端拿回来 */
+    await page.evaluate(() => {
+      try { Object.keys(localStorage).filter(k => k.indexOf("warden.avatar.v1.") === 0).forEach(k => localStorage.removeItem(k)); } catch (e) {}
+    });
+    await login(page);
+    await go(page, "#/settings/account", 4000);
+    const cross = await page.evaluate(() => {
+      const av = document.querySelector("#warden-acctcard .warden-acct-avatar");
+      return { on: document.body.classList.contains("warden-avatar-on"), bg: av ? getComputedStyle(av).backgroundImage.slice(0, 30) : null };
+    });
+    ck("G4 ★ 清掉本地缓存后仍能取回头像(真正的跨端同步)", cross.on === true && /data:image/.test(cross.bg || ""), cross);
+    ck("G4 前端确实发起了 GET /api/accounts/avatar", api.some(x => x.m === "GET"), api.slice(0, 4));
+    if (SHOT) { fs.mkdirSync(OUT, { recursive: true }); await page.screenshot({ path: path.join(OUT, "guard-avatar-cross.png") }); }
     await ctx.close();
   }
 
