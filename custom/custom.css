@@ -1,32 +1,189 @@
 /*
- * warden-worker / shypwd.cc.cd — 自定义前端样式(移动端适配)
+ * warden-worker / shypwd.cc.cd — 自定义前端样式 (v2)
  *
- * 说明:
- *  - 手机端不适配的根因是 index.html 里 <meta name="viewport" content="width=1010">,
- *    会把布局视口强制为 1010px。CI 已在构建时改为 width=device-width(见工作流)。
- *    经全量检索确认: 站点 CSS/JS 中不存在其它硬编码的 1010px 宽度, 故改视口即解除锁定。
- *  - 本文件只做"窄屏最小必要覆盖", 桌面端(>768px)完全不受影响。
- *  - TOTP 行内验证码的样式由 custom.js 注入(#warden-totp-style), 此处不重复。
+ * 线上实测结论(2026-09):
+ *  - 不适配手机的根因之一是 index.html 里 <meta name="viewport" content="width=1010">,
+ *    CI 已在构建时改为 width=device-width(见 .github/workflows/push-cloudflare.yaml)。
+ *  - 根因之二是外层网格被 Angular 写入行内样式:
+ *      bit-layout > .tw-grid { grid-template-columns: 0px minmax(384px,1fr) 0px }
+ *    其中 minmax(384px,1fr) 在 <384px 屏上必然溢出 —— 必须 !important 覆盖。
+ *  - 根因之三是保险库页面内部是 flex 三栏(filters 1/4 + items 3/4 + details),
+ *    在 390px 屏上筛选列只剩 67px, "筛选"两字被迫逐字换行, 同时把列表挤到 240px。
+ *    本文件在窄屏把筛选列改为顶部横向 chip 条, 列表占满整宽。
+ *  - 全局侧边导航(app-side-nav)在窄屏被应用自身收成 0px, 且页面没有汉堡按钮,
+ *    导致手机端完全无法切换 发送/工具/设置。本文件隐藏原生侧栏,
+ *    改由 custom.js 注入底部标签栏(样式见下方 .warden-tabbar)。
  *
- * 采用常见适配方案: 视口自适应 + 断点媒体查询 + flex/grid 可收缩 + 溢出兜底。
+ * 只做窄屏必要覆盖, 桌面端(>768px)完全不受影响。
  */
 
-/* ============ 移动端适配(<=768px, 即 Tailwind 的 md 断点) ============ */
+/* 仅在窄屏加载, 避免任何桌面端副作用 */
 @media (max-width: 768px) {
-  /*
-   * 1) 布局网格修正
-   *   默认中间列是 minmax(384px, 1fr), 在 <384px 手机上会溢出。
-   *   改为 minmax(0, 1fr) 让其可收缩; 首列 auto 保留图标栏(无则自动塌缩为 0);
-   *   第三列(抽屉)固定 0px。该值为 Angular 内联样式, 必须 !important 覆盖。
-   */
-  bit-layout {
-    grid-template-columns: auto minmax(0, 1fr) 0px !important;
+  /* ============================================================
+   * 1. 解除外层网格的最小宽度锁定
+   *    行内样式 0px minmax(384px,1fr) 0px —— 必须 !important
+   * ============================================================ */
+  bit-layout > .tw-grid {
+    grid-template-columns: 0 minmax(0, 1fr) 0 !important;
+  }
+  main#main-content {
+    min-width: 0 !important;
+    padding: 12px !important;
+    padding-top: 8px !important;
+    padding-bottom: 78px !important; /* 给底部标签栏让位 */
+    overflow-x: hidden !important;
   }
 
-  /*
-   * 2) 全局溢出兜底
-   *   前台页(登录/注册等)可能带固定最小宽度; 统一放开, 由内容自适应。
-   */
+  /* 页面头部的负边距/内边距与 main 的 padding 联动, 一起收紧到 12px */
+  main#main-content app-header > header {
+    margin-left: -12px !important;
+    margin-right: -12px !important;
+    margin-top: -8px !important;
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+    padding-top: 12px !important;
+    padding-bottom: 10px !important;
+    gap: 10px !important;
+  }
+
+  /* ============================================================
+   * 2. 原生侧边导航在窄屏隐藏(应用自身已收成 0px, 这里显式隐藏)
+   *    改用 custom.js 注入的底部标签栏
+   * ============================================================ */
+  app-side-nav,
+  bit-side-nav {
+    display: none !important;
+  }
+
+  /* ============================================================
+   * 3. 保险库: 内部 flex 三栏 -> 纵向; 筛选栏搬到顶部
+   * ============================================================ */
+  /* 3.1 三栏容器: 取消负边距并改为纵向堆叠 */
+  main#main-content div.tw-flex.tw-flex-row:has(app-vault-filter) {
+    flex-direction: column !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+  /* 3.2 筛选列(原 tw-basis-1/4) -> 顶部整宽, 去掉左右内边距 */
+  main#main-content
+    div.tw-flex.tw-flex-row:has(app-vault-filter)
+    > div:has(> app-vault-filter) {
+    flex: 0 0 auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+  /* 3.3 条目列(原 tw-basis-3/4) -> 整宽并吃掉剩余高度 */
+  main#main-content
+    div.tw-flex.tw-flex-row:has(app-vault-filter)
+    > div:has(> app-vault-items) {
+    flex: 1 1 auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+
+  /* 3.4 筛选面板外框与"筛选"标题栏去掉, 省出纵向空间 */
+  app-vault-filter > div {
+    border: 0 !important;
+    background: transparent !important;
+  }
+  app-vault-filter [class*="tw-uppercase"] {
+    display: none !important;
+  }
+
+  /* 3.5 面板主体 -> 横向可滚动的 chip 条 */
+  app-vault-filter > div > div > div.tw-p-5 {
+    display: block !important;
+    padding: 0 0 10px !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    white-space: nowrap !important;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  app-vault-filter > div > div > div.tw-p-5::-webkit-scrollbar {
+    display: none;
+  }
+  app-vault-filter bit-search {
+    display: block !important;
+    margin-bottom: 8px !important;
+  }
+  app-vault-filter div.filter {
+    display: inline-block !important;
+    vertical-align: top !important;
+    margin: 0 6px 0 0 !important;
+  }
+  app-vault-filter app-filter-section {
+    display: inline-block !important;
+  }
+  app-vault-filter .filter-heading {
+    display: none !important;
+  }
+  app-vault-filter hr {
+    display: none !important;
+  }
+  app-vault-filter ul.filter-options {
+    display: inline-flex !important;
+    flex-wrap: nowrap !important;
+    gap: 6px !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  app-vault-filter ul.filter-options li {
+    white-space: nowrap !important;
+    flex: 0 0 auto !important;
+  }
+  /* chip 外观 */
+  app-vault-filter ul.filter-options li > * {
+    border-radius: 999px !important;
+    padding-top: 6px !important;
+    padding-bottom: 6px !important;
+    min-height: 34px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+  }
+
+  /* ============================================================
+   * 4. 保险库列表: 为行内 TOTP 徽章腾出空间
+   *
+   * 该表是 table-fixed, 列宽由 <thead> 决定, 共 5 列:
+   *   th.tw-w-24  colspan=2  -> 复选框 + 站标图标 (96px)
+   *   th.tw-w-3/5            -> 名称
+   *   th.tw-w-2/5            -> 所有者 (窄屏 tw-hidden)
+   *   th.tw-w-12             -> 操作菜单 (48px)
+   * 徽章不新增列, 而是放进菜单单元格(custom.js 负责)。
+   * 撑宽该列 + [徽章][⋮] 弹性布局属于通用规则, 放在下方「行内 TOTP」全局段,
+   * 窄屏只做收紧。绝对不要用 display:none 隐藏表头/单元格 —— 会打乱 table-fixed 的列映射。
+   * ============================================================ */
+  /* 徽章在窄屏收紧, 保证 6 位数字 + 三个点都能完整显示 */
+  .warden-totp-code {
+    font-size: 12px !important;
+    letter-spacing: 0.02em !important;
+    padding: 3px 7px !important;
+    gap: 3px !important;
+    flex: 0 0 auto !important;
+  }
+  td.warden-totp-host {
+    gap: 6px !important;
+  }
+
+  /* 4.2 表格内边距收紧 */
+  tr[appvaultcipherrow] td {
+    padding-left: 4px !important;
+    padding-right: 4px !important;
+  }
+
+  /* 4.3 "仅看验证码" 筛选时隐藏无验证码的行 */
+  tr.warden-row-hidden {
+    display: none !important;
+  }
+
+  /* ============================================================
+   * 5. 通用兜底
+   * ============================================================ */
   html,
   body {
     overflow-x: hidden;
@@ -47,31 +204,7 @@
     box-sizing: border-box;
   }
 
-  /*
-   * 3) 横向滚动容器
-   *   Bitwarden 的表格(保险库列表等)包在 tw-overflow-x-auto 中,
-   *   确保窄屏下容器本身可横向滚动, 而不是把整页撑宽。
-   */
-  [class*="tw-overflow-x-auto"] {
-    overflow-x: auto !important;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  /*
-   * 4) 侧边导航: 展开时为覆盖式抽屉(tw-fixed tw-top-0 tw-bottom-0 tw-left-0 tw-z-50)。
-   *   限制最大宽度并允许内部滚动, 避免整屏遮挡。
-   */
-  bit-side-nav.tw-fixed,
-  bit-side-nav[class*="tw-fixed"] {
-    max-width: 85vw !important;
-    overflow-y: auto !important;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  /*
-   * 5) 弹窗/对话框: 适配窄屏, 不超出视口。
-   *   新建/编辑条目、设置等弹层在手机上按屏宽收缩。
-   */
+  /* 弹窗/对话框适配窄屏 */
   .cdk-overlay-pane {
     max-width: 96vw !important;
   }
@@ -81,17 +214,106 @@
   bit-dialog [class*="tw-max-w"] {
     max-width: 100% !important;
   }
+}
 
-  /*
-   * 6) 行内 TOTP 验证码: 极小屏上略微收紧, 保证可点、不与右侧菜单挤压。
-   */
-  .warden-totp-code {
-    font-size: 12px !important;
-    padding: 2px 6px !important;
-    gap: 4px !important;
+/* ==============================================================
+ * 5b. 行内 TOTP 徽章 —— 全局(桌面端同样适用)
+ *
+ * 徽章由 custom.js 放进"操作菜单"单元格的首位, 因此需要:
+ *   1) 把菜单列从 48px 撑到能容纳 [6位数字徽章 + 三个点]
+ *   2) 把该单元格改成右对齐的弹性布局
+ * 不新增 <td>, 所以不会破坏 table-fixed 的列映射。
+ * ============================================================== */
+table thead th.tw-w-12 {
+  width: 118px !important;
+}
+td.warden-totp-host {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 8px !important;
+  white-space: nowrap !important;
+}
+
+/* ==============================================================
+ * 6. 底部标签栏(由 custom.js 注入) —— 仅窄屏显示
+ *    对应 Bitwarden 手机端的底部导航: 密码库 / 验证码 / 发送 / 工具 / 设置
+ *    z-index 60 刻意低于 cdk-overlay-container(1000),
+ *    这样打开条目详情底部抽屉时, 标签栏会被正确遮住。
+ * ============================================================== */
+.warden-tabbar {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .warden-tabbar {
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 60;
+    align-items: stretch;
+    height: 62px;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    background: #ffffff;
+    border-top: 1px solid rgba(0, 0, 0, 0.08);
+    box-shadow: 0 -1px 10px rgba(0, 0, 0, 0.06);
+    box-sizing: content-box;
   }
-  .warden-totp-cell {
-    padding-left: 4px !important;
-    padding-right: 4px !important;
+  .warden-tabbar a {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    font-size: 11px;
+    line-height: 1;
+    text-decoration: none;
+    color: #6b7280;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+  }
+  .warden-tabbar a:active {
+    background: rgba(0, 0, 0, 0.04);
+  }
+  .warden-tabbar svg {
+    width: 22px;
+    height: 22px;
+    display: block;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .warden-tabbar a.warden-tab-active {
+    color: #175ddc;
+    font-weight: 600;
+  }
+  .warden-tabbar a.warden-tab-active svg {
+    stroke-width: 2.1;
+  }
+}
+
+@media (max-width: 768px) and (prefers-color-scheme: dark) {
+  .warden-tabbar {
+    background: #1f2329;
+    border-top-color: rgba(255, 255, 255, 0.1);
+    box-shadow: 0 -1px 10px rgba(0, 0, 0, 0.4);
+  }
+  .warden-tabbar a {
+    color: #9aa3af;
+  }
+  .warden-tabbar a:active {
+    background: rgba(255, 255, 255, 0.06);
+  }
+  .warden-tabbar a.warden-tab-active {
+    color: #7aa7ff;
   }
 }
