@@ -416,8 +416,10 @@
       ".warden-totp-chip{position:absolute;inset:0;border-radius:9px;background:#eef3ff}" +
       ".warden-totp-code:hover .warden-totp-chip{background:#e3ecff}" +
       /* 裁剪层: 底部中间挖掉 20px 宽 / 4px 深的一块(正好盖住 1px 边框 + 3px 进度条)。
-         ⚠️ 宽度要和 JS 里 GAP 常量保持一致, 否则线断的位置和时长换算对不上。 */
-      ".warden-totp-clip{position:absolute;inset:0;" +
+         ⚠️ 宽度要和 JS 里 GAP 常量保持一致, 否则线断的位置和时长换算对不上。
+         ⚠️ border-radius:inherit + overflow:hidden 是**必需**的: clip-path 只按多边形裁,
+            不认圆角; 少了它, 进度条左右两端会直愣愣戳到圆角外面去(用户原话"突出来很突兀")。 */
+      ".warden-totp-clip{position:absolute;inset:0;border-radius:inherit;overflow:hidden;" +
       "clip-path:polygon(0 0,100% 0,100% 100%," +
       "calc(50% + 10px) 100%," +
       "calc(50% + 10px) calc(100% - 4px)," +
@@ -1088,16 +1090,14 @@
     var btns = box.querySelectorAll('button[role="menuitem"], button');
     if (!btns.length) return;
 
-    /* 位置: 「归档」之下、「删除」之上。
-       ⚠️ class 必须抄"删除"**前面**那一项 —— 删除带 tw-text-fg-danger /
-          hover:tw-bg-bg-danger-soft, 抄它的话我们这项也会跟着变成红色危险项。 */
-    var del = null;
+    /* 位置(v8 改过): 「收藏」之下、「编辑」之上 —— 也就是插在「编辑」**前面**。
+       class 抄「编辑」本身(它是普通项); ⚠️ 千万别抄「删除」—— 删除带
+       tw-text-fg-danger / hover:tw-bg-bg-danger-soft, 抄了我们这项会变成红色危险项。 */
+    var anchor = null;
     for (var i = 0; i < btns.length; i++) {
-      if ((btns[i].innerText || "").trim().indexOf("删除") === 0) { del = btns[i]; break; }
+      if ((btns[i].innerText || "").trim().indexOf("编辑") === 0) { anchor = btns[i]; break; }
     }
-    var styleSrc = (del && del.previousElementSibling && del.previousElementSibling.tagName === "BUTTON")
-      ? del.previousElementSibling
-      : (btns.length > 1 ? btns[btns.length - 2] : btns[0]);
+    var styleSrc = anchor || btns[0];
 
     var item = document.createElement("button");
     item.type = "button";
@@ -1119,7 +1119,7 @@
       openFolderPicker(lastMenuRow);
     });
 
-    if (del && del.parentNode) del.parentNode.insertBefore(item, del);
+    if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(item, anchor);
     else box.appendChild(item);
   }
 
@@ -1195,21 +1195,15 @@
       }
     }
 
-    /* 插到 app-header **之前**, 让二级导航成为页面第一行。
-       安全 / 两步登录 这类页面会在 app-header 里多渲染一行三级 tabs
-       (会话超时·主密码·两步登录·设备·密钥); chips 要是坐在页头下面,
-       这行 tabs 一出现就把 chips 整体往下顶, 切换时看着像"卡了一下"。
-       放到页头前面, chips 的纵向位置就恒定不动了。
-       ⚠️ app-header 的父节点**不是** main#main-content(密码库页是 app-vault,
-          设置页是 ng-component), 基准必须以它自己的父节点为准, 拿 main 比会永远不等。 */
-    var hd = host.querySelector("app-header");
-    var parent = (hd && hd.parentNode) || host;
-    var misplaced = (el.parentNode !== parent) ||
-      (hd ? el.nextElementSibling !== hd : parent.firstElementChild !== el);
-    if (misplaced) {
-      if (hd && hd.parentNode) parent.insertBefore(el, hd);
-      else host.insertBefore(el, host.firstChild);
-    }
+    /* ⚠️ v8: 直接挂到 main#main-content 上, **不要**挂进路由组件里。
+       实测给 main 打的属性标记跨路由会保留(M1 还在), 但给 chips 打的标记会丢 ——
+       说明路由一换, Angular 就把 ng-component 整块重建, 挂在里面的 chips 随之
+       被销毁, 再由 MutationObserver 400ms 后补回。用户看到的就是
+       "我的账户/安全 这一行消失一下又加载出来"。
+       挂到 main 上之后 chips 全程不动, 闪烁彻底消失。
+       顺序: [chips][账户卡片][路由内容(含三级 tabs)] —— 卡片位置也在所有设置页恒定。 */
+    var misplaced = (el.parentNode !== host) || (host.firstElementChild !== el);
+    if (misplaced) host.insertBefore(el, host.firstChild);
 
     // 高亮当前项。判变化再写, 否则会喂给 MutationObserver 空转。
     var links = el.querySelectorAll("a[data-href]");
@@ -1219,6 +1213,97 @@
         links[k].classList.toggle("warden-subnav-on", on);
       }
     }
+  }
+
+  /* =====================================================================
+   * 7.5 头像: 点自己的头像直接换图(真实上传)
+   *     ⚠️ 后端 PUT /api/accounts/avatar **只接受 avatar_color** 一个字段
+   *        (src/handlers/accounts.rs 的 put_avatar 里就一句 avatar_color),
+   *        而且 web vault 的 dynamic-avatar 组件根本不渲染图片, 只画首字母。
+   *        所以"真上传"只能在客户端落地: 选图 -> 居中裁方 -> 128px -> data URL
+   *        -> localStorage(按用户 id 分键)。
+   *        代价: **只在本设备/本浏览器生效, 不跨端同步**。要跨端得改 Rust 后端。
+   * ===================================================================== */
+
+  var AV_PREFIX = "warden.avatar.v1.";
+
+  function avatarKey() {
+    var p = (SYNC && SYNC.profile) || {};
+    return AV_PREFIX + (p.id || p.email || "default");
+  }
+
+  function applyStoredAvatar() {
+    var url = null;
+    try { url = localStorage.getItem(avatarKey()); } catch (e) { /* 隐私模式下会抛 */ }
+    if (url) {
+      document.body.style.setProperty("--warden-avatar", 'url("' + url + '")');
+      document.body.classList.add("warden-avatar-on");
+    } else {
+      document.body.style.removeProperty("--warden-avatar");
+      document.body.classList.remove("warden-avatar-on");
+    }
+  }
+
+  /* 藏掉应用自带的「64px 大头像 + 自定义」那一行 —— 窄屏上它只是占地方,
+     而且那个「自定义」弹窗只有一个 color input(只能改底色)。
+     换成: 点我们账户卡片上的头像直接选图。 */
+  function hideAppAvatarRow() {
+    var host = document.querySelector("main#main-content");
+    if (!host) return;
+    var nodes = host.querySelectorAll("dynamic-avatar");
+    for (var i = 0; i < nodes.length; i++) {
+      var row = nodes[i].parentElement;
+      /* 往上找到"同时装了头像和那个按钮"的那一层就停 ——
+         再往上一层还带着账户指纹短语, 一起藏就过头了 */
+      while (row && row !== host && !row.querySelector("button")) row = row.parentElement;
+      if (!row || row === host) continue;
+      if (row.getBoundingClientRect().height > 90) continue;   // 明显不是那一行
+      row.classList.add("warden-app-avatar-row");
+    }
+  }
+
+  function pickAvatarFile() {
+    var inp = document.getElementById("warden-avatar-input");
+    if (!inp) {
+      inp = document.createElement("input");
+      inp.type = "file";
+      inp.id = "warden-avatar-input";
+      inp.accept = "image/*";
+      inp.style.cssText = "position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0";
+      document.body.appendChild(inp);
+      inp.addEventListener("change", function () {
+        var f = inp.files && inp.files[0];
+        inp.value = "";
+        if (!f) return;
+        var fr = new FileReader();
+        fr.onload = function () {
+          var img = new Image();
+          img.onload = function () {
+            try {
+              var S = 128;
+              var cv = document.createElement("canvas");
+              cv.width = S;
+              cv.height = S;
+              var g = cv.getContext("2d");
+              /* 居中裁成正方形, 免得被拉扁 */
+              var side = Math.min(img.width, img.height);
+              var sx = (img.width - side) / 2;
+              var sy = (img.height - side) / 2;
+              g.drawImage(img, sx, sy, side, side, 0, 0, S, S);
+              localStorage.setItem(avatarKey(), cv.toDataURL("image/jpeg", 0.85));
+              applyStoredAvatar();
+              toast("头像已更新(仅本机生效)");
+            } catch (e) {
+              toast("图片处理失败:" + (e && e.message ? e.message : e));
+            }
+          };
+          img.onerror = function () { toast("无法读取该图片"); };
+          img.src = fr.result;
+        };
+        fr.readAsDataURL(f);
+      });
+    }
+    inp.click();
   }
 
   function ensureAccountCard() {
@@ -1240,7 +1325,8 @@
       // 身份行 + 两个动作挤在同一行, 省掉一整行的高度。
       // 「账户设置」不再重复放 —— 上面那条 chips 导航里的「我的账户」就是它。
       card.innerHTML =
-        '<span class="warden-acct-avatar"></span>' +
+        /* 名称 / 电子邮箱 就在头像右侧 —— 这是用户明确要的移动端排布 */
+        '<span class="warden-acct-avatar" title="点击更换头像"></span>' +
         '<span class="warden-acct-text">' +
           '<b class="warden-acct-name"></b>' +
           '<span class="warden-acct-mail"></span>' +
@@ -1250,7 +1336,15 @@
           '<button type="button" data-act="logout" class="warden-acct-danger">注销</button>' +
         '</span>';
       card.addEventListener("click", function (ev) {
-        var b = ev.target && ev.target.closest ? ev.target.closest("button[data-act]") : null;
+        var t = ev.target;
+        /* 点头像 = 直接换头像。不再需要应用那个只能改底色的「自定义」按钮 */
+        if (t && t.closest && t.closest(".warden-acct-avatar")) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          pickAvatarFile();
+          return;
+        }
+        var b = t && t.closest ? t.closest("button[data-act]") : null;
         if (!b) return;
         var act = b.getAttribute("data-act");
         if (act === "lock") triggerAccountAction("立即锁定");
@@ -1260,16 +1354,13 @@
       });
     }
 
-    /* 顺序定为: [chips 二级导航] [app-header(只剩三级 tabs)] [账户卡片]。
-       二级导航已经移到页头**之前**了, 所以卡片要挂到页头**之后** ——
-       不能再挂在 chips 后面, 否则会挤到页头和三级 tabs 中间去。
-       同样以 app-header 自己的父节点为基准(main 并不是它爸爸)。 */
-    var hd = host.querySelector("app-header");
-    var parent = (hd && hd.parentNode) || host;
-    var wantPrev = (hd && hd.parentNode) ? hd : null;
-    var anchor = (hd && hd.parentNode) ? hd.nextSibling : host.firstChild;
-    if (card.parentNode !== parent || card.previousElementSibling !== wantPrev) {
-      parent.insertBefore(card, anchor);
+    /* 同样挂到 main#main-content 上(理由同 ensureSubNav: 路由组件会被重建)。
+       顺序定为 [chips][账户卡片][路由内容], 卡片紧跟在 chips 后面。 */
+    var sub = document.getElementById("warden-subnav");
+    var subHere = (sub && sub.parentNode === host) ? sub : null;
+    var wantPrev = subHere || null;
+    if (card.parentNode !== host || (wantPrev && card.previousElementSibling !== wantPrev)) {
+      host.insertBefore(card, subHere ? subHere.nextSibling : host.firstChild);
     }
 
     var p = (SYNC && SYNC.profile) || {};
@@ -1305,9 +1396,13 @@
       dropFilterToggle();
       dockNewBtn();
     }
-    // 顺序有讲究: 二级导航先插, 账户卡片再插到它后面 -> [页头][chips][账户卡片]
+    // 顺序有讲究: 二级导航先插, 账户卡片再插到它后面 -> [chips][账户卡片][路由内容]
     ensureSubNav();
     ensureAccountCard();
+    /* 头像: 图只存在本机 localStorage, 所以每次都要重新贴一遍
+       (SYNC 到位与否会改变 key, 重贴一次就自动对齐) */
+    applyStoredAvatar();
+    if (isNarrow() && currentRoute().indexOf("/settings") === 0) hideAppAvatarRow();
   }
 
   function setSelecting(on) {

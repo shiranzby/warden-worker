@@ -873,8 +873,8 @@ body.warden-ghost-menu .cdk-overlay-container {
   }
   .warden-acct-avatar {
     flex: 0 0 auto;
-    width: 30px;
-    height: 30px;
+    width: 34px;
+    height: 34px;
     border-radius: 50%;
     background: #0f7b7b;
     color: #ffffff;
@@ -883,6 +883,18 @@ body.warden-ghost-menu .cdk-overlay-container {
     justify-content: center;
     font-size: 13px;
     font-weight: 600;
+    /* 点头像即可换图 —— 不再需要应用那个只能改底色的「自定义」按钮 */
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* 有本地头像图时: 铺满, 并把首字母藏掉(否则字会压在图上)。
+     注意这条必须比上面的 .warden-acct-avatar 更具体, 才能盖过 background 简写里的 image。 */
+  body.warden-avatar-on .warden-acct-avatar {
+    background-image: var(--warden-avatar);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    color: transparent;
   }
   .warden-acct-text {
     flex: 1 1 auto;
@@ -1047,6 +1059,18 @@ body.warden-ghost-menu .cdk-overlay-container {
     margin-top: 0 !important;
     margin-bottom: 0 !important;
     gap: 0 !important;
+  }
+}
+
+/* ======================================================================
+ * J3. 窄屏: 藏掉应用自带的「64px 大头像 + 自定义」那一行
+ *     它只占地方, 而且那个「自定义」弹窗只有一个 <input type="color"> —— 只能改
+ *     头像底色。窄屏上换成: 点我们账户卡片里的头像直接选图上传(见 custom.js 7.5)。
+ *     ⚠️ 只标那一行本身, 它的父容器还带着「账户指纹短语」, 不能一起藏。
+ * ====================================================================== */
+@media (max-width: 768px) {
+  .warden-app-avatar-row {
+    display: none !important;
   }
 }
 
