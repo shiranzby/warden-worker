@@ -1,32 +1,37 @@
 /*
- * warden-worker / shypwd.cc.cd — 自定义前端增强 (v5)
+ * warden-worker / shypwd.cc.cd — 自定义前端增强 (v6)
  *
  * 功能:
  *   1) 保险库列表每行末尾、三点菜单之前常显 TOTP 动态码
- *   2) 徽章四角全圆角(overflow:hidden 裁出来), 码在盒体正中,
- *      底栏内左侧进度条 + 居中且垂直居中的剩余秒数, <5s 转红
- *   3) "名称"表头行兼作工具行: 右对齐放「选择」与「新增」(并排同尺寸胶囊),
- *      省掉原来单独一行的"选择"按钮条
+ *   2) 徽章 = 一个完整的圆角矩形: 码在矩形正中, 下沿 3px 倒计时进度线,
+ *      下边"中间挖空"一段放剩余秒数, <5s 整体转红
+ *   3) "名称"表头行兼作工具行: 右对齐放「选择」与「新增」(并排同尺寸胶囊)
  *   4) 选择模式(放出复选框列, 应用自带的"全选"同时生效)
  *      + 底部批量操作条(全选 / 已选N项 / 移入回收站 / 取消)
  *   5) 窄屏筛选抽屉: 11 个筛选 chip 不再横着塞满一行, 改为按钮展开竖排面板
  *   6) 独立的"验证码"页(复刻 Bitwarden Authenticator 卡片式列表)
- *   7) 窄屏底部标签栏(密码库/验证码/发送/工具/设置)
- *   8) 窄屏留白压缩(custom.css 段 H)
- *   9) 窄屏隐藏页头(h1 + 视图切换 + 头像), 账户动作挪到设置页顶部卡片
+ *   7) 窄屏底部标签栏(密码库/验证码/发送/工具/报告/设置)
+ *   8) 窄屏留白压缩(custom.css 段 H) + 对话框压缩(段 K)
+ *   9) 窄屏隐藏页头(h1 + 视图切换 + 头像), 账户动作挪到设置页
+ *  10) 窄屏补回应用侧栏的"二级"层: 设置页 chips(我的账户/安全/外观/域名规则/
+ *      紧急访问) 与工具页 chips(生成器/导入/导出)
+ *  11) 行内三点菜单补一项「添加到文件夹」(走 REST, 见 7.4)
  *
- * v5 关键修正:
- *   - 「新增」按钮改为"真搬 DOM"(appendChild 进表头槽位), 不再用
- *     position:absolute + translate 平移到槽位。原因见 dockNewBtn() 注释。
- *   - 窄屏隐藏 app-vault-header / app-account-menu; 设置页顶部注入账户卡片。
+ * v6 关键修正:
+ *   - 拆掉 custom.css 里 `bit-layout > .tw-grid { ... 0 !important }` 那三列锁死。
+ *     它把应用承载 bit-dialog 的"浮层列"压成 0, Send 的新增对话框变成
+ *     width:0 / left:视口宽 -> 整个跑到屏幕外, 表现为"点新增没反应"。
+ *     改由 relaxGrid() 运行时只替换 minmax(384px,→minmax(0,。
+ *   - 徽章重做成"完整圆角矩形 + 下边中间挖空", 去掉 v5 那条 16px 高的底栏。
+ *   - 表头右侧「选项」三点默认隐藏(它只有 作用于选中项的 两项), 选择模式才露。
  *
  * 线上实测结论(勿轻易改动):
  *   - 该版本 Web Vault 的加解密跑在 Rust/WASM 核心里, 不走 crypto.subtle,
  *     无法通过 hook SubtleCrypto 拿明文; 生产构建下 __ngContext__ 是数字,
  *     window.ng 不存在, 也拿不到组件实例。
- *   - 唯一可靠路径: 在 Angular 启动前劫持 fetch/XHR, 截获应用自身发出的
- *     带 Authorization 头的 /api/sync 响应, 再用 window.bitwardenContainerService
- *     的 KeyService/EncryptService 解密。
+ *   - DI 容器 window.bitwardenContainerService 只挂了三个方法:
+ *       attachToGlobal / getKeyService / getEncryptService
+ *     没有 getCipherService / getFolderService, 所以"改条目"只能走 REST。
  *   - 行结构 <tr appvaultcipherrow> 共 5 个 td:
  *       [0]复选框 [1]站标图标 [2]名称+用户名 [3]组织徽标 [4]操作菜单
  *     名称 = cell[2] 里 button[bitlink].innerText。
@@ -34,7 +39,12 @@
  *     (th.tw-w-24 带 colspan=2 覆盖 复选框+图标)。所以:
  *       不可新增 <td>(会凭空多出第 6 列, 名称列被挤到 48px);
  *       不可给表头/单元格 display:none(会打乱列映射)。
- *     徽章放进已有的菜单单元格, 列宽收缩靠改 th.tw-w-24 的宽度。
+ *     徽章放进已有的菜单单元格, 列宽收缩靠改 th 的宽度。
+ *   - ⚠️ 给 <td> 写 display:flex 是错的: td 会退化成匿名单元格, 高度只按内容
+ *     算(实测 46px vs 行高 79px), "相对整行居中"永远做不到。用原生
+ *     table-cell + vertical-align:middle 才对。
+ *   - ⚠️ MutationObserver(孩子的变化) + 400ms debounce -> boot()。任何
+ *     "无条件写 textContent" 都会无限空转, 必须判变化再写。
  */
 
 (function () {
@@ -390,38 +400,43 @@
     var s = document.createElement("style");
     s.id = "warden-totp-style";
     s.textContent =
-      /* 盒体: 四角同半径 + overflow:hidden, 让底栏的直角被裁成圆角。
+      /* 盒体: 始终是一个"完整的圆角矩形"。四角用同一个 9px 半径, 内层直角靠
+         overflow:hidden 裁掉 —— 而不是给下层单独写圆角(那样看得出是拼的两段)。
          用 inline-block 是为了留在单元格的基线流里, 由 table-cell 的
-         vertical-align:middle 把它相对整行居中 */
+         vertical-align:middle 把它相对整行居中。 */
       ".warden-totp-code{position:relative;display:inline-block;vertical-align:middle;" +
       "margin-right:8px;box-sizing:border-box;" +
       "min-width:84px;height:46px;border:1px solid #b9cdf3;border-radius:9px;background:#eef3ff;" +
       "overflow:hidden;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent}" +
       ".warden-totp-code:hover{background:#e3ecff}" +
-      /* 码区铺满整个盒体(不是"盒体减底栏"), 码才能落在矩形的正中 */
+      /* 码区铺满"整个盒体"(inset:0), 码才落在矩形的正中, 而不是"矩形减底栏"的正中 */
       ".warden-totp-body{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}" +
       ".warden-totp-digits{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;" +
       "font-size:13px;font-weight:700;letter-spacing:.05em;color:#175ddc;line-height:1;white-space:nowrap}" +
-      /* 底栏: 进度条做背景层, 秒数压在它上面; 秒数在底栏里水平+垂直居中 */
-      ".warden-totp-foot{position:absolute;left:0;right:0;bottom:0;height:16px;display:flex;" +
-      "align-items:center;justify-content:center;background:#cfdefa}" +
-      ".warden-totp-fill{position:absolute;left:0;top:0;bottom:0;width:100%;background:#175ddc;" +
-      "transition:width .9s linear}" +
-      ".warden-totp-sec{position:relative;z-index:1;min-width:20px;text-align:center;padding:0 5px;" +
-      "border-radius:999px;background:#eef3ff;" +
+      /* 倒计时进度: 只在下沿画 3px 一条线, 不再做成 16px 高的"底栏"(那才是丑的根源) */
+      ".warden-totp-fill{position:absolute;left:0;bottom:0;height:3px;width:100%;" +
+      "background:#175ddc;transition:width .9s linear}" +
+      /* 下边中间"挖空"的缺口: 与盒体同色, 同时盖住 1px 边框和 3px 进度线,
+         于是底边在中间断开一段, 看上去就是被挖掉一块给秒数腾地方。
+         bottom:-1px 是为了连边框那 1px 一起盖住, 超出盒体的部分由 overflow:hidden 裁掉。
+         background-color 用 inherit, 这样 hover / 转红时缺口跟着盒子一起变色。 */
+      ".warden-totp-notch{position:absolute;left:50%;transform:translateX(-50%);" +
+      "bottom:-1px;width:38px;height:17px;background-color:inherit}" +
+      /* 秒数: 坐在缺口里, 相对"下面的边"水平居中 + 垂直居中 */
+      ".warden-totp-sec{position:absolute;left:50%;transform:translateX(-50%);bottom:0;" +
+      "width:38px;height:16px;display:flex;align-items:center;justify-content:center;" +
       "font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;" +
-      "font-size:10px;font-weight:700;line-height:1.4;color:#175ddc}" +
+      "font-size:10px;font-weight:700;line-height:1;color:#175ddc}" +
       ".warden-totp-low{border-color:#f0b4b4;background:#fdecec}" +
       ".warden-totp-low .warden-totp-digits{color:#c62828}" +
-      ".warden-totp-low .warden-totp-foot{background:#f6d3d3}" +
       ".warden-totp-low .warden-totp-fill{background:#e24b4a}" +
-      ".warden-totp-low .warden-totp-sec{background:#fdecec;color:#c62828}" +
+      ".warden-totp-low .warden-totp-sec{color:#c62828}" +
       ".warden-totp-copied{background:#dff3e6!important;border-color:#9fd8b6!important}" +
       ".warden-totp-copied .warden-totp-digits{color:#1b7a44!important}";
     document.head.appendChild(s);
   }
 
-  /* 盒体 -> 码区(body) + 底栏(foot: 进度条 + 秒数截断) */
+  /* 盒体 -> 码区(body) + 下沿进度线(fill) + 下边缺口(notch) + 缺口里的秒数(sec) */
   function paintBadgeStructure(el) {
     if (el.__built) return;
     el.__built = true;
@@ -434,18 +449,21 @@
     digits.textContent = "--- ---";
     body.appendChild(digits);
 
-    var foot = document.createElement("span");
-    foot.className = "warden-totp-foot";
     var fill = document.createElement("i");
     fill.className = "warden-totp-fill";
+
+    var notch = document.createElement("span");
+    notch.className = "warden-totp-notch";
+
     var sec = document.createElement("span");
     sec.className = "warden-totp-sec";
     sec.textContent = "--";
-    foot.appendChild(fill);
-    foot.appendChild(sec);
 
     el.appendChild(body);
-    el.appendChild(foot);
+    el.appendChild(fill);
+    el.appendChild(notch);
+    el.appendChild(sec);
+
     el.__digits = digits;
     el.__fill = fill;
     el.__sec = sec;
@@ -583,6 +601,38 @@
 
   function isNarrow() {
     return window.innerWidth <= NARROW_PX;
+  }
+
+  /* ---- 7.0 外层网格: 只放开中间列的最小宽度 ----------------------------
+   *   应用给 bit-layout 的 grid 打了行内 style, 中间列是 minmax(384px,1fr);
+   *   那个 384px 的下限在窄屏会顶出横向滚动条, 需要放宽成 minmax(0,1fr)。
+   *
+   *   ⚠️ 这件事**绝对不能**用 CSS 做。第 3 列是 tw-col-start-3 的"浮层列",
+   *      打开 Send 的 bit-dialog 时应用会临时把它撑开来承载 dialog。v5 线上
+   *      写的是 grid-template-columns: 0 minmax(0,1fr) 0 !important —— 三列
+   *      全被锁死, dialog 于是变成 width:0 / left:视口宽, 整个跑到屏幕右侧
+   *      外面。用户看到的现象就是"发送页点新增、菜单关了、什么都没发生"。
+   *   所以改成运行时只替换 384px 这一段, 第 1/3 列原样保留。
+   * -------------------------------------------------------------------- */
+  function relaxGrid() {
+    if (!isNarrow()) return;
+    var g = document.querySelector("bit-layout > .tw-grid");
+    if (!g) return;
+    var t = g.style.gridTemplateColumns;
+    if (!t || t.indexOf("384px") === -1) return;
+    g.style.gridTemplateColumns = t.replace(/minmax\(\s*384px\s*,/g, "minmax(0,");
+  }
+
+  /* 应用每次开/关浮层都会重写这条行内样式, 盯着它才能第一时间纠正。
+     注意不会自喂: relaxGrid 只在还能看到 384px 时才写, 写完下一轮就直接返回。 */
+  function watchGrid() {
+    var g = document.querySelector("bit-layout > .tw-grid");
+    if (!g || g.__wardenGridWatched) return;
+    g.__wardenGridWatched = true;
+    new MutationObserver(relaxGrid).observe(g, {
+      attributes: true,
+      attributeFilter: ["style"]
+    });
   }
 
   function nameTh() {
@@ -772,6 +822,307 @@
     return true;
   }
 
+  /* ---- 7.3 窄屏的"二级导航" ----------------------------------------------
+   *   应用桌面版本质是三分栏: 侧栏一级(密码库/Send/工具/报告/设置) + 每个分区
+   *   自己的二级导航。窄屏把侧栏整个 display:none 了, 一级由底部标签栏接管,
+   *   但二级没有任何替代 —— 于是:
+   *     · "设置"页只剩「我的账户」, 进不去 安全/外观/域名规则/紧急访问
+   *       (用户说的"移动端找不到更改密码等等一系列设置")
+   *     · "工具"页困在生成器里, 出不去 导入/导出
+   *   这里给这两类页面各补一条横向滚动的 chip 导航, 点击只改 location.hash。
+   *   安全页自己还有一层(会话超时/主密码/两步登录/设备/密钥), 应用在窄屏
+   *   原生就保留了, 不用我们管。
+   * -------------------------------------------------------------------- */
+
+  var NAV_SETS = {
+    settings: [
+      { href: "#/settings/account", label: "我的账户" },
+      { href: "#/settings/security", label: "安全" },
+      { href: "#/settings/appearance", label: "外观" },
+      { href: "#/settings/domain-rules", label: "域名规则" },
+      { href: "#/settings/emergency-access", label: "紧急访问" }
+    ],
+    tools: [
+      { href: "#/tools/generator", label: "生成器" },
+      { href: "#/tools/import", label: "导入" },
+      { href: "#/tools/export", label: "导出" }
+    ]
+  };
+
+  function navSetFor(route) {
+    if (route.indexOf("/settings") === 0) return NAV_SETS.settings;
+    if (route.indexOf("/tools") === 0) return NAV_SETS.tools;
+    return null;
+  }
+
+  /* ---- 7.4 行内三点菜单补上「添加到文件夹」 -------------------------------
+   *   表头那三点的菜单里只有「添加到文件夹 / 删除」, 都作用于"已选中条目";
+   *   而行内三点(复制用户名/复制密码/…/删除)里偏偏没有这个最常用的。
+   *
+   *   ⚠️ window.bitwardenContainerService 只暴露 getKeyService 与
+   *      getEncryptService, 拿不到 cipherService, 所以走不了应用自己的保存链路。
+   *      改走 REST: GET /api/ciphers/{id} 取回原样 -> 只改 folderId -> PUT 回去。
+   *      folderId 在 Bitwarden 数据模型里是**明文字段**, 不需要重新加密, 其余字段
+   *      原封不动带回去, 所以这次 round-trip 不会动到任何密文。
+   *
+   *   名称 -> id 的映射要解密全部条目名, 有点贵, 所以按需构建、随 SYNC 失效。
+   * -------------------------------------------------------------------- */
+
+  var nameMap = null;        // { 规范化名称: [{id, username}, ...] }
+  var nameMapBuiltFor = null;
+  var folderList = null;     // [{id, name}]
+  var lastMenuRow = null;    // 行内三点被点的行(菜单浮层在 DOM 上认不出来源)
+
+  async function buildNameMap() {
+    var cs = container();
+    if (!cs || !SYNC) return false;
+    var ks, es, userKey;
+    try {
+      ks = cs.getKeyService();
+      es = cs.getEncryptService();
+      userKey = await ks.getUserKey();
+    } catch (e) { return false; }
+    if (!userKey) return false;
+
+    var list = SYNC.ciphers || [];
+    var buckets = {};
+    var order = [];
+    for (var i = 0; i < list.length; i++) {
+      var c = list[i];
+      if (!c || !c.id || c.deletedDate || deletedIds[c.id]) continue;
+      if (c.key) continue;               // 组织条目用独立 cipher key, 跳过
+      var nm = await dec(es, userKey, c.name);
+      var k = norm(nm);
+      if (!k) continue;
+      if (!buckets[k]) { buckets[k] = []; order.push(k); }
+      buckets[k].push({ id: c.id, user: c.login && c.login.username ? c.login.username : "" });
+    }
+
+    /* 重名的才需要再解密一次用户名来消歧义 —— 没必要为全部条目付这个成本 */
+    var map = {};
+    for (var j = 0; j < order.length; j++) {
+      var key = order[j];
+      var arr = buckets[key];
+      if (arr.length > 1) {
+        for (var m = 0; m < arr.length; m++) {
+          arr[m].username = arr[m].user ? await dec(es, userKey, arr[m].user) : "";
+        }
+      }
+      map[key] = arr;
+    }
+
+    var fs = SYNC.folders || [];
+    var fl = [];
+    for (var n = 0; n < fs.length; n++) {
+      var f = fs[n];
+      if (!f || !f.id) continue;
+      var fn = await dec(es, userKey, f.name);
+      fl.push({ id: f.id, name: fn || "(未命名)" });
+    }
+
+    nameMap = map;
+    folderList = fl;
+    nameMapBuiltFor = SYNC;
+    return true;
+  }
+
+  function pickIdForRow(row) {
+    var name = rowName(row);
+    var cand = nameMap && nameMap[name];
+    if (!cand || !cand.length) return null;
+    if (cand.length === 1) return cand[0].id;
+    var td = row.cells && row.cells[2];
+    var txt = td ? norm(td.innerText) : "";
+    for (var i = 0; i < cand.length; i++) {
+      if (cand[i].username && txt.indexOf(norm(cand[i].username)) !== -1) return cand[i].id;
+    }
+    return cand[0].id;
+  }
+
+  async function applyFolder(cipherId, folderId) {
+    closeFolderPicker();
+    if (!AUTH) { toast("未取得会话令牌，请刷新页面后重试"); return; }
+    try {
+      var g = await fetch("/api/ciphers/" + cipherId, { headers: { Authorization: AUTH } });
+      if (!g.ok) throw new Error("HTTP " + g.status);
+      var c = await g.json();
+      c.folderId = folderId || null;
+      var p = await fetch("/api/ciphers/" + cipherId, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: AUTH },
+        body: JSON.stringify(c)
+      });
+      if (!p.ok) throw new Error("HTTP " + p.status);
+      toast(folderId ? "已添加到文件夹" : "已移出文件夹");
+    } catch (e) {
+      toast("操作失败：" + (e && e.message ? e.message : e));
+    }
+  }
+
+  function closeFolderPicker() {
+    var p = document.getElementById("warden-folderpick");
+    if (p && p.parentNode) p.parentNode.removeChild(p);
+  }
+
+  async function openFolderPicker(row) {
+    if (!row) { toast("没有识别到要处理的条目"); return; }
+    if (!nameMap || nameMapBuiltFor !== SYNC) {
+      toast("正在读取文件夹…");
+      var ok = await buildNameMap();
+      if (!ok) { toast("无法读取文件夹列表"); return; }
+    }
+    var id = pickIdForRow(row);
+    if (!id) { toast("无法确定该条目的 ID，请改用「选择」后批量添加"); return; }
+    renderFolderPicker(id);
+  }
+
+  function renderFolderPicker(cipherId) {
+    closeFolderPicker();
+    var wrap = document.createElement("div");
+    wrap.id = "warden-folderpick";
+    wrap.className = "warden-folderpick";
+
+    var mask = document.createElement("div");
+    mask.className = "warden-foldermask";
+    mask.addEventListener("click", closeFolderPicker);
+
+    var sheet = document.createElement("div");
+    sheet.className = "warden-foldersheet";
+
+    var title = document.createElement("div");
+    title.className = "warden-foldertitle";
+    title.textContent = "添加到文件夹";
+    sheet.appendChild(title);
+
+    var list = document.createElement("div");
+    list.className = "warden-folderlist";
+
+    var opts = [{ id: "", name: "（不放入文件夹）" }].concat(folderList || []);
+    for (var i = 0; i < opts.length; i++) {
+      (function (o) {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.textContent = o.name;                    // 用户数据 -> textContent
+        if (!o.id) b.className = "warden-folder-none";
+        b.addEventListener("click", function () { applyFolder(cipherId, o.id); });
+        list.appendChild(b);
+      })(opts[i]);
+    }
+    if ((folderList || []).length === 0) {
+      var tip = document.createElement("div");
+      tip.className = "warden-folder-tip";
+      tip.textContent = "还没有文件夹，可先在密码库页新建。";
+      list.appendChild(tip);
+    }
+    sheet.appendChild(list);
+
+    var cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "warden-foldercancel";
+    cancel.textContent = "取消";
+    cancel.addEventListener("click", closeFolderPicker);
+    sheet.appendChild(cancel);
+
+    wrap.appendChild(mask);
+    wrap.appendChild(sheet);
+    document.body.appendChild(wrap);
+  }
+
+  /* 行内菜单条目多、带「克隆」; 表头菜单只有两项。用它区分。 */
+  function isRowMenu(panel) {
+    var t = panel.innerText || "";
+    return t.indexOf("克隆") !== -1 || t.indexOf("归档") !== -1;
+  }
+
+  function injectFolderItem(panel) {
+    if (!panel || panel.querySelector(".warden-menu-fold")) return;
+    var box = panel.querySelector('[role="menu"]') || panel;
+    var last = box.querySelector('button[role="menuitem"], button');
+    if (!last) return;
+    var item = document.createElement("button");
+    item.type = "button";
+    item.className = last.className + " warden-menu-fold";
+    item.setAttribute("role", "menuitem");
+    item.textContent = "添加到文件夹";
+    item.addEventListener("click", function (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      openFolderPicker(lastMenuRow);
+    });
+    box.appendChild(item);
+  }
+
+  /* 菜单浮层是动态插进 body 的, 借已有的 MutationObserver 一起扫 */
+  function scanMenus(muts) {
+    if (!muts) return;
+    for (var i = 0; i < muts.length; i++) {
+      var added = muts[i].addedNodes;
+      for (var j = 0; j < added.length; j++) {
+        var n = added[j];
+        if (!n || n.nodeType !== 1) continue;
+        var panel = (n.classList && n.classList.contains("bit-menu-panel"))
+          ? n
+          : (n.querySelector ? n.querySelector(".cdk-overlay-pane.bit-menu-panel") : null);
+        if (!panel || !isRowMenu(panel)) continue;
+        // 菜单项可能晚一帧才由 Angular 渲染出来, 隔一拍再补一次(注入是幂等的)
+        injectFolderItem(panel);
+        setTimeout(function (p) { return function () { injectFolderItem(p); }; }(panel), 130);
+      }
+    }
+  }
+
+  function ensureSubNav() {
+    var el = document.getElementById("warden-subnav");
+    var items = isNarrow() ? navSetFor(currentRoute()) : null;
+
+    if (!items) {
+      if (el && el.parentNode) el.parentNode.removeChild(el);
+      return;
+    }
+
+    var host = document.querySelector("main#main-content");
+    if (!host) return;
+
+    if (!el) {
+      el = document.createElement("nav");
+      el.id = "warden-subnav";
+      el.className = "warden-subnav";
+      el.addEventListener("click", function (ev) {
+        var a = ev.target && ev.target.closest ? ev.target.closest("a[data-href]") : null;
+        if (!a) return;
+        ev.preventDefault();
+        location.hash = a.getAttribute("data-href");
+      });
+      for (var i = 0; i < items.length; i++) {
+        var a = document.createElement("a");
+        a.setAttribute("data-href", items[i].href);
+        a.textContent = items[i].label;
+        el.appendChild(a);
+      }
+    }
+
+    /* ⚠️ app-header 的父节点**不一定**是 main#main-content ——
+       密码库页是 app-vault, 设置页是 app-settings。所以"插到哪"就以哪个节点
+       为基准来比对, 拿 main 去比会永远不相等, 于是每轮都重插一遍, 把
+       账户卡片反复顶走。 */
+    var hd = host.querySelector("app-header");
+    var parent = (hd && hd.parentNode) || host;
+    if (el.parentNode !== parent) {
+      if (hd && hd.parentNode) parent.insertBefore(el, hd.nextSibling);
+      else host.insertBefore(el, host.firstChild);
+    }
+
+    // 高亮当前项。判变化再写, 否则会喂给 MutationObserver 空转。
+    var r = currentRoute();
+    var links = el.querySelectorAll("a[data-href]");
+    for (var k = 0; k < links.length; k++) {
+      var on = r.indexOf(links[k].getAttribute("data-href").replace(/^#/, "")) === 0;
+      if (on !== links[k].classList.contains("warden-subnav-on")) {
+        links[k].classList.toggle("warden-subnav-on", on);
+      }
+    }
+  }
+
   function ensureAccountCard() {
     var card = document.getElementById("warden-acctcard");
     var want = isNarrow() && currentRoute().indexOf("/settings") === 0;
@@ -788,35 +1139,39 @@
       card = document.createElement("div");
       card.id = "warden-acctcard";
       card.className = "warden-acctcard";
+      // 身份行 + 两个动作挤在同一行, 省掉一整行的高度。
+      // 「账户设置」不再重复放 —— 上面那条 chips 导航里的「我的账户」就是它。
       card.innerHTML =
-        '<div class="warden-acct-id">' +
-          '<span class="warden-acct-avatar"></span>' +
-          '<span class="warden-acct-text">' +
-            '<b class="warden-acct-name"></b>' +
-            '<span class="warden-acct-mail"></span>' +
-          '</span>' +
-        '</div>' +
-        '<div class="warden-acct-acts">' +
-          '<button type="button" data-act="account">账户设置</button>' +
-          '<button type="button" data-act="lock">立即锁定</button>' +
+        '<span class="warden-acct-avatar"></span>' +
+        '<span class="warden-acct-text">' +
+          '<b class="warden-acct-name"></b>' +
+          '<span class="warden-acct-mail"></span>' +
+        '</span>' +
+        '<span class="warden-acct-acts">' +
+          '<button type="button" data-act="lock">锁定</button>' +
           '<button type="button" data-act="logout" class="warden-acct-danger">注销</button>' +
-        '</div>';
+        '</span>';
       card.addEventListener("click", function (ev) {
         var b = ev.target && ev.target.closest ? ev.target.closest("button[data-act]") : null;
         if (!b) return;
         var act = b.getAttribute("data-act");
-        if (act === "account") location.hash = "#/settings/account";
-        else if (act === "lock") triggerAccountAction("立即锁定");
+        if (act === "lock") triggerAccountAction("立即锁定");
         else if (act === "logout") {
           if (window.confirm("确定要注销当前账户吗？")) triggerAccountAction("注销");
         }
       });
     }
 
-    // 插到页头之后 —— 直接插成 main 的首个子节点会跑到"我的账户"标题上面去
-    if (card.parentNode !== host) {
-      var hd = host.querySelector("app-header");
-      if (hd && hd.parentNode) hd.parentNode.insertBefore(card, hd.nextSibling);
+    /* 插到页头之后、chips 导航之下。
+       同样以 app-header 自己的父节点为基准(main 并不是它爸爸)。 */
+    var hd = host.querySelector("app-header");
+    var parent = (hd && hd.parentNode) || host;
+    var sub = document.getElementById("warden-subnav");
+    var subHere = (sub && sub.parentNode === parent) ? sub : null;
+    var wantPrev = subHere || (hd && hd.parentNode ? hd : null);
+    if (card.parentNode !== parent || (wantPrev && card.previousElementSibling !== wantPrev)) {
+      if (subHere) parent.insertBefore(card, subHere.nextSibling);
+      else if (hd && hd.parentNode) parent.insertBefore(card, hd.nextSibling);
       else host.insertBefore(card, host.firstChild);
     }
 
@@ -840,9 +1195,11 @@
     if (av && av.textContent !== initial) av.textContent = initial;
   }
 
-  // 只在保险库列表页生效的"外壳"
+  // 全站通用的"外壳"(每个页面都要跑一遍)
   function syncChrome() {
     ensureTabbar();
+    watchGrid();
+    relaxGrid();
     if (nameTh()) {
       ensureHeadbar();
       if (isNarrow()) ensureFilterToggle();
@@ -851,6 +1208,8 @@
       dropFilterToggle();
       dockNewBtn();
     }
+    // 顺序有讲究: 二级导航先插, 账户卡片再插到它后面 -> [页头][chips][账户卡片]
+    ensureSubNav();
     ensureAccountCard();
   }
 
@@ -1131,17 +1490,21 @@
     tools:
       '<rect x="4" y="4" width="7" height="7" rx="1.6"/><rect x="13" y="4" width="7" height="7" rx="1.6"/>' +
       '<rect x="4" y="13" width="7" height="7" rx="1.6"/><rect x="13" y="13" width="7" height="7" rx="1.6"/>',
+    reports: '<path d="M5.5 20V11M12 20V4.5M18.5 20v-6"/>',
     settings:
       '<circle cx="12" cy="12" r="3"/>' +
       '<path d="M12 3.6v2.1M12 18.3v2.1M3.6 12h2.1M18.3 12h2.1' +
       'M6.1 6.1l1.5 1.5M16.4 16.4l1.5 1.5M17.9 6.1l-1.5 1.5M7.6 16.4l-1.5 1.5"/>'
   };
 
+  /* 对应桌面端侧栏第一分栏(密码库/Send/工具/报告/设置) + 我们额外拆出来的「验证码」。
+     原先漏了「报告」—— 它的路由一直是通的, 只是窄屏没有任何入口。 */
   var TABS = [
     { key: "vault", label: "密码库", route: "/vault" },
     { key: "totp", label: "验证码", route: "/vault", auth: true },
     { key: "sends", label: "发送", route: "/sends" },
     { key: "tools", label: "工具", route: "/tools" },
+    { key: "reports", label: "报告", route: "/reports" },
     { key: "settings", label: "设置", route: "/settings" }
   ];
 
@@ -1283,13 +1646,21 @@
     }, 1000);
     setInterval(function () { boot(); }, 2000);
 
-    var observer = new MutationObserver(function () {
+    // 行内三点的菜单浮层在 DOM 上认不出来源, 靠点击时先记下是哪一行
+    document.addEventListener("click", function (ev) {
+      var t = ev.target;
+      var b = t && t.closest ? t.closest("tr[appvaultcipherrow] button[biticonbutton]") : null;
+      if (b) lastMenuRow = b.closest("tr[appvaultcipherrow]");
+    }, true);
+
+    var observer = new MutationObserver(function (muts) {
+      scanMenus(muts);
       clearTimeout(window.__wardenScanT);
       window.__wardenScanT = setTimeout(function () { boot(); }, 400);
     });
     observer.observe(document.body, { childList: true, subtree: true });
 
-    console.log(LOG, "injected (v5)");
+    console.log(LOG, "injected (v6)");
   }
 
   if (document.readyState === "loading") {
