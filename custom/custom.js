@@ -182,7 +182,17 @@
       }, 800);
     });
     td.appendChild(span);
-    row.appendChild(td);
+
+    // 插到"三点菜单"单元格之前, 保证验证码位于行末、且在三个点前面
+    var menuBtn = row.querySelector("button.bwi-ellipsis-v, .bwi-ellipsis-v");
+    var menuCell = menuBtn ? menuBtn.closest("td") : null;
+    if (menuCell) {
+      row.insertBefore(td, menuCell);
+    } else if (row.cells && row.cells.length) {
+      row.insertBefore(td, row.cells[row.cells.length - 1]);
+    } else {
+      row.appendChild(td);
+    }
   }
 
   async function refreshCodes() {
