@@ -276,6 +276,7 @@ pub async fn register(
         id: Uuid::new_v4().to_string(),
         name: payload.name,
         avatar_color: None,
+        avatar_image: None,
         email: payload.email.to_lowercase(),
         email_verified: false,
         master_password_hash: hashed_password,
