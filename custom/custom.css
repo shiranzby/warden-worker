@@ -1,0 +1,60 @@
+/*
+ * warden-worker / shypwd.cc.cd — 自定义前端样式
+ * 主要作用: 移动端适配(配合 CI 注入的 index.html 视口修正)。
+ * TOTP 行内验证码的样式由 custom.js 动态注入(#warden-totp-style), 此处不重复。
+ *
+ * 设计原则(参考 Karpathy 简洁优先):
+ *  - 仅针对窄屏(<=768px)做最小必要覆盖, 桌面端完全不受影响。
+ *  - 只修正会撑破视口/不可用的布局, 不重写框架组件。
+ */
+
+/* ============ 移动端适配(<=768px) ============ */
+@media (max-width: 768px) {
+  /*
+   * 关键布局修正: 默认 grid 中间列是 minmax(384px, 1fr),
+   * 在 <384px 的手机上会被迫产生横向滚动。改为 minmax(0, 1fr) 让其可收缩。
+   * 第一列(auto)在有图标侧栏时保留其宽度、无侧栏时自动塌缩为 0, 安全。
+   * 第三列(抽屉)固定 0px。
+   * 该属性由 Angular 以内联样式写入, 故必须用 !important 覆盖。
+   */
+  bit-layout {
+    grid-template-columns: auto minmax(0, 1fr) 0px !important;
+  }
+
+  /* 兜底: 任何意外超出视口宽度的元素不再引发整页横向滚动 */
+  html,
+  body {
+    overflow-x: hidden;
+  }
+
+  /*
+   * 侧边导航在手机上展开时为覆盖式抽屉(tw-fixed tw-top-0 tw-bottom-0 tw-left-0 tw-z-50)。
+   * 限制其最大宽度并允许内部滚动, 避免遮挡全部内容。
+   */
+  bit-side-nav.tw-fixed,
+  bit-side-nav[class*="tw-fixed"] {
+    max-width: 85vw !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* 行内 TOTP 验证码在极小屏上略微收紧, 保证可点且不与操作菜单挤在一起 */
+  .warden-totp-code {
+    font-size: 12px !important;
+    padding: 2px 6px !important;
+    gap: 4px !important;
+  }
+  .warden-totp-cell {
+    padding-left: 4px !important;
+    padding-right: 4px !important;
+  }
+
+  /*
+   * 保险库表格在窄屏允许横向滚动而不撑破页面。
+   * Bitwarden 已将表格包在 overflow-x-auto 容器内, 这里确保宽度行为正确。
+   */
+  app-vault .tw-overflow-x-auto,
+  .vault-list .tw-overflow-x-auto {
+    max-width: 100%;
+  }
+}

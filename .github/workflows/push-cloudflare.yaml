@@ -120,6 +120,46 @@ jobs:
             echo "WARNING: no 'minimumPasswordLength=12' found; web vault may use a different default. Verify manually."
           fi
 
+      - name: Inject shypwd custom frontend (TOTP inline + mobile adaptation)
+        run: |
+          set -euo pipefail
+          # 1) 复制自定义 CSS/JS 到 web-vault 根目录(源文件来自仓库 custom/)
+          cp custom/custom.css public/web-vault/custom.css
+          cp custom/custom.js   public/web-vault/custom.js
+
+          # 2) 修补 index.html: 视口自适应移动端 + 注入自定义 CSS/JS 引用
+          python3 - <<'PY'
+          p = "public/web-vault/index.html"
+          s = open(p, encoding="utf-8").read()
+
+          # 视口: width=1010 -> 自适应设备宽度(修复手机端被锁死为 1010px)
+          old_vp = '<meta name="viewport" content="width=1010"/>'
+          new_vp = '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>'
+          if old_vp in s:
+              s = s.replace(old_vp, new_vp, 1)
+              print("viewport meta patched for mobile")
+          else:
+              print("WARNING: viewport meta 'width=1010' not found; verify manually")
+
+          # 注入自定义 CSS(放在 </head> 前)
+          css_tag = '<link rel="stylesheet" href="custom.css"/>'
+          if css_tag not in s and "</head>" in s:
+              s = s.replace("</head>", css_tag + "</head>", 1)
+              print("custom.css link injected")
+          else:
+              print("WARNING: custom.css link already present or </head> missing")
+
+          # 注入自定义 JS(放在 </body> 前; 脚本内部用 MutationObserver 自适应加载时机)
+          js_tag = '<script src="custom.js"></script>'
+          if js_tag not in s and "</body>" in s:
+              s = s.replace("</body>", js_tag + "</body>", 1)
+              print("custom.js script injected")
+          else:
+              print("WARNING: custom.js script already present or </body> missing")
+
+          open(p, "w", encoding="utf-8").write(s)
+          PY
+
       - name: Replace D1_DATABASE_ID in wrangler.toml
         run: sed -i "s/\${D1_DATABASE_ID}/${{ secrets.D1_DATABASE_ID }}/g" wrangler.toml
 
