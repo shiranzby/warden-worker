@@ -39,7 +39,15 @@ pub fn api_router(env: Env) -> Router {
         .route("/api/accounts/profile", get(accounts::get_profile))
         .route("/api/accounts/profile", post(accounts::post_profile))
         .route("/api/accounts/profile", put(accounts::put_profile))
-        .route("/api/accounts/avatar", put(accounts::put_avatar))
+        .route(
+            "/api/accounts/avatar",
+            get(accounts::get_avatar).put(accounts::put_avatar),
+        )
+        // 自定义头像图片: 单独两个端点, 不动官方的 avatarColor 流程
+        .route(
+            "/api/accounts/avatar/image",
+            put(accounts::put_avatar_image).delete(accounts::delete_avatar_image),
+        )
         // Delete account
         .route("/api/accounts", delete(accounts::delete_account))
         .route("/api/accounts/delete", post(accounts::delete_account))

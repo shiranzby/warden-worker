@@ -855,14 +855,18 @@ body.warden-ghost-menu .cdk-overlay-container {
   pointer-events: none !important;
 }
 
-/* 设置页顶部的账户卡片(custom.js 注入, 仅窄屏) */
-.warden-acctcard {
+/* 设置页顶部的账户卡片(custom.js 注入)。桌面 + 移动**同一套排布**:
+   头像在左、名称 / 电子邮箱在右(用户明确要求电脑网页端也改成这样)。
+   ⚠️ v9 之前整块被包在 @media (max-width:768px) 里 —— 桌面端卡片是 display:none,
+   头像和文字两个 rect 都塌成 0, 看起来像"叠在一起"。
+   这里改成只在"当前页该有这张卡片"时显示; body 类由 custom.js 在 Angular
+   渲染**之前**同步挂上, 所以不会"先出现再消失"。 */
+body:not(.warden-has-account-card) .warden-acctcard {
   display: none;
 }
 
-@media (max-width: 768px) {
-  .warden-acctcard {
-    display: flex;
+.warden-acctcard {
+  display: flex;
     align-items: center;
     gap: 9px;
     margin: 0 0 8px;
@@ -945,9 +949,8 @@ body.warden-ghost-menu .cdk-overlay-container {
     color: #c62828 !important;
     border-color: rgba(198, 40, 40, 0.35) !important;
   }
-}
 
-@media (max-width: 768px) and (prefers-color-scheme: dark) {
+@media (prefers-color-scheme: dark) {
   .warden-acctcard {
     background: #262b33;
     border-color: rgba(255, 255, 255, 0.12);
@@ -1063,15 +1066,26 @@ body.warden-ghost-menu .cdk-overlay-container {
 }
 
 /* ======================================================================
- * J3. 窄屏: 藏掉应用自带的「64px 大头像 + 自定义」那一行
+ * J3. 藏掉应用自带的「64px 大头像 + 自定义」那一行(桌面 + 窄屏都藏)
  *     它只占地方, 而且那个「自定义」弹窗只有一个 <input type="color"> —— 只能改
- *     头像底色。窄屏上换成: 点我们账户卡片里的头像直接选图上传(见 custom.js 7.5)。
- *     ⚠️ 只标那一行本身, 它的父容器还带着「账户指纹短语」, 不能一起藏。
+ *     头像底色。换成: 点我们账户卡片里的头像直接选图上传(见 custom.js 7.5)。
+ *
+ *     ⚠️⚠️ 这里**必须写成纯 CSS + :has(), 不能靠 JS 事后加类**。
+ *     v8 是 JS 在 syncChrome() 里给那一行加 .warden-app-avatar-row, 而 syncChrome
+ *     跑在 MutationObserver(异步) + 2s 定时器上 —— Angular 早就把那一行画出来了,
+ *     于是用户看到"头像和自定义按钮先出现、再消失"。
+ *     现在由 custom.js 在 Angular 渲染**之前**同步挂上 body 类, CSS 首帧就生效。
+ *     结构(实测): dynamic-avatar > button > app-account-menu, 它和「自定义」按钮
+ *     同在一个 div 里, 所以用 div:has(> app-account-menu) 精确命中那一行,
+ *     再往上一层是带「账户指纹短语」的容器, 不能一起藏。
  * ====================================================================== */
-@media (max-width: 768px) {
-  .warden-app-avatar-row {
-    display: none !important;
-  }
+body.warden-has-account-card main#main-content app-header header div:has(> app-account-menu) {
+  display: none !important;
+}
+
+/* JS 兜底: :has() 太老的浏览器兜不住, 保留按类隐藏这条路径(内容同 J3) */
+.warden-app-avatar-row {
+  display: none !important;
 }
 
 /* ======================================================================
@@ -1306,8 +1320,16 @@ body.warden-ghost-menu .cdk-overlay-container {
  * ====================================================================== */
 ng-dropdown-panel,
 .ng-dropdown-panel {
-  z-index: 1400 !important;
+  /* ⚠️ 不要写 z-index: 1400 !important —— 实测应用自己给它是 2050,
+     我们那条 !important 反而把它压低 650 层, 越改越容易被盖住。
+     只做下限保护即可。 */
+  z-index: 2400 !important;
 }
-.ng-dropdown-panel .ng-dropdown-panel-items {
+/* ⚠️⚠️ 只在"往下弹"时限制高度。往上弹(ng-select-top)时真正的约束是
+   "select 上方还剩多少空间", 写死 46vh 会把面板顶部顶出屏幕:
+   实测 375x667 -> y=-10、320x568 -> y=-13, **最前面几个选项跑到屏幕外,
+   而 ng-select 的面板只能往下滚, 够不回来**(用户原话"各个抽屉选项无法列出来")。
+   .ng-select-top 分支刻意不写规则, 交给 ng-select 自己按上方可用空间算。 */
+.ng-dropdown-panel.ng-select-bottom .ng-dropdown-panel-items {
   max-height: 46vh !important;
 }

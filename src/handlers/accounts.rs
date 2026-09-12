@@ -25,10 +25,10 @@ use crate::{
         device::Device,
         sync::Profile,
         user::{
-            AvatarData, ChangeKdfRequest, ChangePasswordRequest, MasterPasswordUnlockData,
-            PasswordHintRequest, PasswordOrOtpData, PreloginKdfSettings, PreloginResponse,
-            MasterPasswordPolicyResponse,
-            ProfileData, RegisterRequest, RotateKeyRequest, User,
+            AvatarData, AvatarImageData, AvatarResponse, ChangeKdfRequest, ChangePasswordRequest,
+            MasterPasswordPolicyResponse, MasterPasswordUnlockData, PasswordHintRequest,
+            PasswordOrOtpData, PreloginKdfSettings, PreloginResponse, ProfileData, RegisterRequest,
+            RotateKeyRequest, User,
         },
     },
     notifications::{self, UpdateType},
@@ -564,6 +564,176 @@ pub async fn put_avatar(
     );
 
     Ok(Json(profile))
+}
+
+/// 头像图片 data URL 的字符数上限。
+/// 128px 方图 jpeg(q≈0.85) 一般只有 6~15KB, 这里放宽到约 300KB 二进制作为硬上限,
+/// 防止恶意/误操作把 D1 单行撑爆。
+const MAX_AVATAR_IMAGE_CHARS: usize = 400_000;
+
+/// 只接受 `data:image/(png|jpeg|jpg|webp|gif);base64,…`, 其余一律拒绝。
+/// 服务端**不解码** base64 —— 存的是完整 data URL, 前端直接当 CSS `url()` 用。
+fn validate_avatar_image(raw: &str) -> Result<String, AppError> {
+    let s = raw.trim();
+    if s.is_empty() {
+        return Err(AppError::BadRequest("头像图片不能为空".to_string()));
+    }
+    if s.len() > MAX_AVATAR_IMAGE_CHARS {
+        return Err(AppError::BadRequest(format!(
+            "头像图片过大: {} 字符, 上限 {}",
+            s.len(),
+            MAX_AVATAR_IMAGE_CHARS
+        )));
+    }
+    let Some(rest) = s.strip_prefix("data:image/") else {
+        return Err(AppError::BadRequest(
+            "头像必须是 data:image/... 形式的 data URL".to_string(),
+        ));
+    };
+    let Some(semi) = rest.find(';') else {
+        return Err(AppError::BadRequest(
+            "头像 data URL 缺少 MIME 参数".to_string(),
+        ));
+    };
+    let mime = &rest[..semi];
+    if !matches!(mime, "png" | "jpeg" | "jpg" | "webp" | "gif") {
+        return Err(AppError::BadRequest(format!(
+            "不支持的头像图片类型: {mime}"
+        )));
+    }
+    if !rest[semi..].starts_with(";base64,") {
+        return Err(AppError::BadRequest(
+            "头像 data URL 必须是 base64 编码".to_string(),
+        ));
+    }
+    Ok(s.to_string())
+}
+
+/// 读当前用户的头像(颜色 + 图片 data URL)。
+/// 单独开一个 GET 而不是塞进 `/api/sync`, 是为了不让每次同步都带上几十 KB 的 base64。
+#[worker::send]
+pub async fn get_avatar(
+    claims: Claims,
+    State(env): State<Arc<Env>>,
+) -> Result<Json<AvatarResponse>, AppError> {
+    let db = db::get_db(&env)?;
+
+    let row: Value = db
+        .prepare("SELECT avatar_color, avatar_image FROM users WHERE id = ?1")
+        .bind(&[claims.sub.clone().into()])?
+        .first(None)
+        .await
+        .map_err(|_| AppError::Database)?
+        .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
+
+    Ok(Json(AvatarResponse {
+        avatar_color: row
+            .get("avatar_color")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        avatar_image: row
+            .get("avatar_image")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+    }))
+}
+
+/// 上传/替换自定义头像图片(替换掉默认那个纯色+首字母的头像)。
+#[worker::send]
+pub async fn put_avatar_image(
+    claims: Claims,
+    State(env): State<Arc<Env>>,
+    Json(payload): Json<AvatarImageData>,
+) -> Result<Json<AvatarResponse>, AppError> {
+    let image = validate_avatar_image(&payload.image)?;
+
+    let db = db::get_db(&env)?;
+    let user_id = &claims.sub;
+    let now = db::now_string();
+
+    let row: Value = db
+        .prepare("SELECT avatar_color FROM users WHERE id = ?1")
+        .bind(&[user_id.clone().into()])?
+        .first(None)
+        .await
+        .map_err(|_| AppError::Database)?
+        .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
+    let color = row
+        .get("avatar_color")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    d1_query!(
+        &db,
+        "UPDATE users SET avatar_image = ?1, updated_at = ?2 WHERE id = ?3",
+        Some(image.clone()),
+        now.clone(),
+        user_id
+    )
+    .map_err(|_| AppError::Database)?
+    .run()
+    .await
+    .map_err(|_| AppError::Database)?;
+
+    notifications::publish_user_update(
+        (*env).clone(),
+        claims.sub,
+        UpdateType::SyncSettings,
+        now,
+        Some(claims.device),
+    );
+
+    Ok(Json(AvatarResponse {
+        avatar_color: color,
+        avatar_image: Some(image),
+    }))
+}
+
+/// 清除自定义头像图片, 回退到"纯色 + 首字母"的默认头像。
+#[worker::send]
+pub async fn delete_avatar_image(
+    claims: Claims,
+    State(env): State<Arc<Env>>,
+) -> Result<Json<AvatarResponse>, AppError> {
+    let db = db::get_db(&env)?;
+    let user_id = &claims.sub;
+    let now = db::now_string();
+
+    let row: Value = db
+        .prepare("SELECT avatar_color FROM users WHERE id = ?1")
+        .bind(&[user_id.clone().into()])?
+        .first(None)
+        .await
+        .map_err(|_| AppError::Database)?
+        .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
+    let color = row
+        .get("avatar_color")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    d1_query!(
+        &db,
+        "UPDATE users SET avatar_image = NULL, updated_at = ?1 WHERE id = ?2",
+        now.clone(),
+        user_id
+    )
+    .map_err(|_| AppError::Database)?
+    .run()
+    .await
+    .map_err(|_| AppError::Database)?;
+
+    notifications::publish_user_update(
+        (*env).clone(),
+        claims.sub,
+        UpdateType::SyncSettings,
+        now,
+        Some(claims.device),
+    );
+
+    Ok(Json(AvatarResponse {
+        avatar_color: color,
+        avatar_image: None,
+    }))
 }
 
 #[worker::send]

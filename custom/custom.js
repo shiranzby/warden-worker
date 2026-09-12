@@ -1142,14 +1142,36 @@
     }
   }
 
+  /* ⚡ 路由标记 —— **唯一入口**, 而且必须抢在 Angular 首次渲染之前跑一遍。
+     CSS 靠这两个 body 类隐藏"应用自带的无用行"(大标题页头 / 头像+自定义行):
+       body.warden-has-subnav        -> 藏掉设置/工具页那个大标题页头
+       body.warden-has-account-card  -> 藏掉「头像 + 自定义」那一行
+     ⚠️ v8 的教训: 这些类原来是 syncChrome()(MutationObserver + 2s 定时器)里加的,
+     Angular 早把内容画出来了, 用户看到的就是"先出现、再消失"。
+     现在改成两个时机, 保证首帧就命中:
+       ① 本脚本在 </body> 前同步执行时先算一次(body 已存在, Angular 还没渲染)
+       ② hashchange / resize 时再算一次 */
+  function syncRouteFlags() {
+    /* ⚠️ 本脚本在页面里是 </body> 前的同步 <script>, body 一定存在;
+       但被注入/预加载执行时 document.body 可能还是 null, 那时直接跳过
+       (init() 里还会再算一次), 别把整个 IIFE 给抛死。 */
+    if (!document.body) return;
+    var route = currentRoute();
+    document.body.classList.toggle("warden-has-subnav", isNarrow() && !!navSetFor(route));
+    document.body.classList.toggle("warden-has-account-card", route.indexOf("/settings") === 0);
+  }
+
   function ensureSubNav() {
     var el = document.getElementById("warden-subnav");
     var route = currentRoute();
     var items = isNarrow() ? navSetFor(route) : null;
 
-    /* body 上的这个类 = "当前页有二级导航"。CSS 靠它把设置页那个大标题页头
-       (标题行 + 产品切换宫格) 藏掉 —— 窄屏上它们毫无信息量, 只是把内容往下压。 */
-    document.body.classList.toggle("warden-has-subnav", !!items);
+    /* body 上的这些类 = "当前页有二级导航 / 有我们的账户卡片"。
+       CSS 靠它们把设置页那个大标题页头(标题行 + 产品切换宫格)和应用自带的
+       「头像 + 自定义」那一行藏掉 —— 窄屏上它们毫无信息量, 只是把内容往下压。
+       ⚠️ 统一走 syncRouteFlags() 这一个入口: 它在 Angular 渲染**之前**就已跑过一遍,
+       所以这些规则首帧就生效, 不会出现"先画出来再消失"。 */
+    syncRouteFlags();
 
     if (!items) {
       if (el && el.parentNode) el.parentNode.removeChild(el);
@@ -1216,13 +1238,16 @@
   }
 
   /* =====================================================================
-   * 7.5 头像: 点自己的头像直接换图(真实上传)
-   *     ⚠️ 后端 PUT /api/accounts/avatar **只接受 avatar_color** 一个字段
-   *        (src/handlers/accounts.rs 的 put_avatar 里就一句 avatar_color),
-   *        而且 web vault 的 dynamic-avatar 组件根本不渲染图片, 只画首字母。
-   *        所以"真上传"只能在客户端落地: 选图 -> 居中裁方 -> 128px -> data URL
-   *        -> localStorage(按用户 id 分键)。
-   *        代价: **只在本设备/本浏览器生效, 不跨端同步**。要跨端得改 Rust 后端。
+   * 7.5 头像: 点自己的头像直接换图(真实上传, 跨端同步)
+   *     后端已扩展(见本仓库 src/handlers/accounts.rs):
+   *       GET    /api/accounts/avatar        -> { avatarColor, avatarImage }
+   *       PUT    /api/accounts/avatar/image  -> 存图片(data URL), 返回同上
+   *       DELETE /api/accounts/avatar/image  -> 清除
+   *     ⚠️ 图片**没有**塞进 /api/sync 的 Profile, 否则每次同步都要白传几十 KB base64。
+   *     前端流程: 选图 -> 居中裁方 -> 128px jpeg(q=0.85) -> data URL
+   *       -> localStorage 立即生效(避免等网络) -> PUT 到后端(真正跨端)
+   *     web vault 自带的 dynamic-avatar 只画首字母, 不认图片, 所以由我们的
+   *     账户卡片用 CSS background-image 渲染。
    * ===================================================================== */
 
   var AV_PREFIX = "warden.avatar.v1.";
@@ -1232,9 +1257,8 @@
     return AV_PREFIX + (p.id || p.email || "default");
   }
 
-  function applyStoredAvatar() {
-    var url = null;
-    try { url = localStorage.getItem(avatarKey()); } catch (e) { /* 隐私模式下会抛 */ }
+  /* 把头像挂到 body 上的 CSS 变量, 账户卡片用 background-image 消费 */
+  function applyAvatarUrl(url) {
     if (url) {
       document.body.style.setProperty("--warden-avatar", 'url("' + url + '")');
       document.body.classList.add("warden-avatar-on");
@@ -1244,9 +1268,51 @@
     }
   }
 
-  /* 藏掉应用自带的「64px 大头像 + 自定义」那一行 —— 窄屏上它只是占地方,
-     而且那个「自定义」弹窗只有一个 color input(只能改底色)。
-     换成: 点我们账户卡片上的头像直接选图。 */
+  function avatarApi(path, opts) {
+    if (!AUTH) return Promise.reject(new Error("尚未登录"));
+    opts = opts || {};
+    opts.headers = opts.headers || {};
+    opts.headers.Authorization = AUTH;
+    if (opts.body) opts.headers["Content-Type"] = "application/json";
+    return fetch("/api/accounts/avatar" + (path || ""), opts).then(function (r) {
+      if (!r.ok) {
+        return r.text().then(function (t) {
+          throw new Error(t ? String(t).slice(0, 80) : "HTTP " + r.status);
+        });
+      }
+      return r.json();
+    });
+  }
+
+  /* 每次进入会话只从后端拉一次 —— 用来把"别的设备上改的头像"同步过来。
+     拉之前先用 localStorage 里那份渲染, 所以不会闪。
+     401/未登录时直接放弃, 下次 syncChrome 再试。 */
+  var avPulled = false;
+  function syncAvatarFromServer() {
+    if (avPulled || !AUTH) return;
+    avPulled = true;
+    avatarApi("").then(function (d) {
+      var img = (d && d.avatarImage) || null;
+      try {
+        if (img) localStorage.setItem(avatarKey(), img);
+        else localStorage.removeItem(avatarKey());
+      } catch (e) { /* 隐私模式 */ }
+      applyAvatarUrl(img);
+    }).catch(function () {
+      avPulled = false;   // 失败就下次再试, 不要永久卡死
+    });
+  }
+
+  function applyStoredAvatar() {
+    var url = null;
+    try { url = localStorage.getItem(avatarKey()); } catch (e) { /* 隐私模式下会抛 */ }
+    applyAvatarUrl(url);
+    syncAvatarFromServer();
+  }
+
+  /* 藏掉应用自带的「64px 大头像 + 自定义」那一行。
+     正常情况下 CSS 的 :has() 已经把它藏掉了(首帧就生效); 这里只作为
+     :has() 不被支持时的兜底, 所以它允许慢一拍。 */
   function hideAppAvatarRow() {
     var host = document.querySelector("main#main-content");
     if (!host) return;
@@ -1290,9 +1356,18 @@
               var sx = (img.width - side) / 2;
               var sy = (img.height - side) / 2;
               g.drawImage(img, sx, sy, side, side, 0, 0, S, S);
-              localStorage.setItem(avatarKey(), cv.toDataURL("image/jpeg", 0.85));
-              applyStoredAvatar();
-              toast("头像已更新(仅本机生效)");
+              var dataUrl = cv.toDataURL("image/jpeg", 0.85);
+              /* 先本地落地 —— 不等网络, 点完马上就能看到 */
+              try { localStorage.setItem(avatarKey(), dataUrl); } catch (e) { /* 隐私模式 */ }
+              applyAvatarUrl(dataUrl);
+              /* 再推给后端, 这样手机/电脑才是一致的 */
+              avatarApi("/image", { method: "PUT", body: JSON.stringify({ image: dataUrl }) })
+                .then(function () {
+                  toast("头像已更新, 并已同步到你的账户");
+                })
+                .catch(function (e) {
+                  toast("头像已在本机生效, 但同步失败:" + (e && e.message ? e.message : e));
+                });
             } catch (e) {
               toast("图片处理失败:" + (e && e.message ? e.message : e));
             }
@@ -1308,7 +1383,9 @@
 
   function ensureAccountCard() {
     var card = document.getElementById("warden-acctcard");
-    var want = isNarrow() && currentRoute().indexOf("/settings") === 0;
+    /* v9: 桌面端也用它 —— 用户要的就是"头像在左, 名称 + 电子邮箱在右"这套排布,
+       不再只在窄屏生效(桌面端原来那一行大头像 + 自定义按钮同样被藏掉)。 */
+    var want = currentRoute().indexOf("/settings") === 0;
 
     if (!want) {
       if (card && card.parentNode) card.parentNode.removeChild(card);
@@ -1402,7 +1479,7 @@
     /* 头像: 图只存在本机 localStorage, 所以每次都要重新贴一遍
        (SYNC 到位与否会改变 key, 重贴一次就自动对齐) */
     applyStoredAvatar();
-    if (isNarrow() && currentRoute().indexOf("/settings") === 0) hideAppAvatarRow();
+    if (currentRoute().indexOf("/settings") === 0) hideAppAvatarRow();
   }
 
   function setSelecting(on) {
@@ -1805,6 +1882,7 @@
   function init() {
     ensureStyle();
     ensureBulkBar();
+    syncRouteFlags();   // 再算一次: 文档已就绪, 这次 body 一定在
     onFirstSync(function () { boot(); });
     boot();
 
@@ -1854,6 +1932,12 @@
 
     console.log(LOG, "injected (v6)");
   }
+
+  /* 见 syncRouteFlags 的注释: 必须在这里**同步**跑一次,
+     抢在 Angular 首次渲染前面把 body 类挂上, 否则隐藏类晚一拍生效就会闪。 */
+  syncRouteFlags();
+  window.addEventListener("hashchange", syncRouteFlags);
+  window.addEventListener("resize", syncRouteFlags);
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init);

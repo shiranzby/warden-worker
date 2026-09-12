@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY NOT NULL,
     name TEXT,
     avatar_color TEXT,
+    avatar_image TEXT, -- 自定义头像图片 data URL (NULL = 用 avatar_color + 首字母)
     email TEXT NOT NULL UNIQUE,
     email_verified BOOLEAN NOT NULL DEFAULT 0,
     master_password_hash TEXT NOT NULL,

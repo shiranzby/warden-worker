@@ -14,6 +14,10 @@ pub struct User {
     pub id: String,
     pub name: Option<String>,
     pub avatar_color: Option<String>,
+    /// 自定义头像图片, 存 data URL(`data:image/jpeg;base64,…`)。
+    /// 老用户此列尚未建立 / 无头像时为 NULL —— serde 对 `Option` 缺字段会填 `None`, 向后兼容。
+    #[serde(default)]
+    pub avatar_image: Option<String>,
     pub email: String,
     #[serde(with = "bool_from_int")]
     pub email_verified: bool,
@@ -417,8 +421,29 @@ pub struct ProfileData {
     pub name: String,
 }
 
+/// ⚠️ 这里**故意不放** `avatarImage`。
+/// Bitwarden 官方客户端改头像颜色时会发 `{"avatarColor":"#xxxxxx"}`, 不带 image 字段。
+/// 而 serde 对 `Option<Option<T>>` 无法区分"字段缺失"和"显式 null"
+/// (两者都会落到外层 `None`), 一旦放进来就会把用户上传的头像误清空。
+/// 所以图片走独立的 `/api/accounts/avatar/image` 端点, 颜色仍走这里, 互不干扰。
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AvatarData {
     pub avatar_color: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AvatarImageData {
+    /// 客户端裁好图后以 data URL 回传(`data:image/jpeg;base64,…`)。
+    pub image: String,
+}
+
+/// `GET/PUT /api/accounts/avatar*` 的响应: 只回头像相关字段,
+/// 不塞进 `/api/sync` 的 Profile 里 —— 免得每次同步都白白带上几十 KB 的 base64。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AvatarResponse {
+    pub avatar_color: Option<String>,
+    pub avatar_image: Option<String>,
 }
