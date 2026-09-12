@@ -1,10 +1,11 @@
 /*
- * warden-worker / shypwd.cc.cd — 自定义前端增强 (v4)
+ * warden-worker / shypwd.cc.cd — 自定义前端增强 (v5)
  *
  * 功能:
  *   1) 保险库列表每行末尾、三点菜单之前常显 TOTP 动态码
- *   2) 徽章下边缘 = 剩余时间进度条, 中间截断处显示剩余秒数, <5s 转红
- *   3) "名称"表头行兼作工具行: 右对齐放「选择」(窄屏连「新增」一起),
+ *   2) 徽章四角全圆角(overflow:hidden 裁出来), 码在盒体正中,
+ *      底栏内左侧进度条 + 居中且垂直居中的剩余秒数, <5s 转红
+ *   3) "名称"表头行兼作工具行: 右对齐放「选择」与「新增」(并排同尺寸胶囊),
  *      省掉原来单独一行的"选择"按钮条
  *   4) 选择模式(放出复选框列, 应用自带的"全选"同时生效)
  *      + 底部批量操作条(全选 / 已选N项 / 移入回收站 / 取消)
@@ -12,6 +13,12 @@
  *   6) 独立的"验证码"页(复刻 Bitwarden Authenticator 卡片式列表)
  *   7) 窄屏底部标签栏(密码库/验证码/发送/工具/设置)
  *   8) 窄屏留白压缩(custom.css 段 H)
+ *   9) 窄屏隐藏页头(h1 + 视图切换 + 头像), 账户动作挪到设置页顶部卡片
+ *
+ * v5 关键修正:
+ *   - 「新增」按钮改为"真搬 DOM"(appendChild 进表头槽位), 不再用
+ *     position:absolute + translate 平移到槽位。原因见 dockNewBtn() 注释。
+ *   - 窄屏隐藏 app-vault-header / app-account-menu; 设置页顶部注入账户卡片。
  *
  * 线上实测结论(勿轻易改动):
  *   - 该版本 Web Vault 的加解密跑在 Rust/WASM 核心里, 不走 crypto.subtle,
@@ -383,53 +390,62 @@
     var s = document.createElement("style");
     s.id = "warden-totp-style";
     s.textContent =
-      ".warden-totp-code{position:relative;display:inline-flex;flex-direction:column;" +
-      "align-items:center;justify-content:center;box-sizing:border-box;" +
-      "min-width:84px;padding:3px 9px 13px;border:1px solid #b9cdf3;border-bottom:none;" +
-      "border-radius:7px 7px 0 0;background:#eef3ff;cursor:pointer;" +
-      "user-select:none;-webkit-tap-highlight-color:transparent}" +
+      /* 盒体: 四角同半径 + overflow:hidden, 让底栏的直角被裁成圆角。
+         用 inline-block 是为了留在单元格的基线流里, 由 table-cell 的
+         vertical-align:middle 把它相对整行居中 */
+      ".warden-totp-code{position:relative;display:inline-block;vertical-align:middle;" +
+      "margin-right:8px;box-sizing:border-box;" +
+      "min-width:84px;height:46px;border:1px solid #b9cdf3;border-radius:9px;background:#eef3ff;" +
+      "overflow:hidden;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent}" +
       ".warden-totp-code:hover{background:#e3ecff}" +
+      /* 码区铺满整个盒体(不是"盒体减底栏"), 码才能落在矩形的正中 */
+      ".warden-totp-body{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}" +
       ".warden-totp-digits{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;" +
-      "font-size:13px;font-weight:700;letter-spacing:.05em;color:#175ddc;line-height:1.25;white-space:nowrap}" +
-      ".warden-totp-sec{position:absolute;left:50%;transform:translateX(-50%);bottom:-2px;" +
-      "background:#eef3ff;padding:0 4px;border-radius:2px;" +
-      "font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;" +
-      "font-size:10px;font-weight:700;line-height:1.5;color:#175ddc;opacity:.8}" +
-      ".warden-totp-meter{position:absolute;left:-1px;right:-1px;bottom:0;height:3px;" +
-      "border-radius:0 0 6px 6px;background:#cfdefa;overflow:hidden}" +
-      ".warden-totp-meter>i{display:block;height:100%;width:100%;background:#175ddc;" +
+      "font-size:13px;font-weight:700;letter-spacing:.05em;color:#175ddc;line-height:1;white-space:nowrap}" +
+      /* 底栏: 进度条做背景层, 秒数压在它上面; 秒数在底栏里水平+垂直居中 */
+      ".warden-totp-foot{position:absolute;left:0;right:0;bottom:0;height:16px;display:flex;" +
+      "align-items:center;justify-content:center;background:#cfdefa}" +
+      ".warden-totp-fill{position:absolute;left:0;top:0;bottom:0;width:100%;background:#175ddc;" +
       "transition:width .9s linear}" +
+      ".warden-totp-sec{position:relative;z-index:1;min-width:20px;text-align:center;padding:0 5px;" +
+      "border-radius:999px;background:#eef3ff;" +
+      "font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;" +
+      "font-size:10px;font-weight:700;line-height:1.4;color:#175ddc}" +
       ".warden-totp-low{border-color:#f0b4b4;background:#fdecec}" +
-      ".warden-totp-low .warden-totp-digits,.warden-totp-low .warden-totp-sec{color:#c62828}" +
-      ".warden-totp-low .warden-totp-sec{background:#fdecec}" +
-      ".warden-totp-low .warden-totp-meter{background:#f6d3d3}" +
-      ".warden-totp-low .warden-totp-meter>i{background:#e24b4a}" +
+      ".warden-totp-low .warden-totp-digits{color:#c62828}" +
+      ".warden-totp-low .warden-totp-foot{background:#f6d3d3}" +
+      ".warden-totp-low .warden-totp-fill{background:#e24b4a}" +
+      ".warden-totp-low .warden-totp-sec{background:#fdecec;color:#c62828}" +
       ".warden-totp-copied{background:#dff3e6!important;border-color:#9fd8b6!important}" +
       ".warden-totp-copied .warden-totp-digits{color:#1b7a44!important}";
     document.head.appendChild(s);
   }
 
+  /* 盒体 -> 码区(body) + 底栏(foot: 进度条 + 秒数截断) */
   function paintBadgeStructure(el) {
     if (el.__built) return;
     el.__built = true;
     el.textContent = "";
 
+    var body = document.createElement("span");
+    body.className = "warden-totp-body";
     var digits = document.createElement("span");
     digits.className = "warden-totp-digits";
     digits.textContent = "--- ---";
+    body.appendChild(digits);
 
-    var meter = document.createElement("span");
-    meter.className = "warden-totp-meter";
+    var foot = document.createElement("span");
+    foot.className = "warden-totp-foot";
     var fill = document.createElement("i");
-    meter.appendChild(fill);
-
+    fill.className = "warden-totp-fill";
     var sec = document.createElement("span");
     sec.className = "warden-totp-sec";
     sec.textContent = "--";
+    foot.appendChild(fill);
+    foot.appendChild(sec);
 
-    el.appendChild(digits);
-    el.appendChild(meter);
-    el.appendChild(sec);
+    el.appendChild(body);
+    el.appendChild(foot);
     el.__digits = digits;
     el.__fill = fill;
     el.__sec = sec;
@@ -547,14 +563,19 @@
   }
 
   /* =====================================================================
-   * 7. 表头工具行 —— 把「选择」(窄屏连「新增」)并入"名称"那一行
+   * 7. 表头工具行 —— 把「选择」与「新增」并入"名称"那一行
    *    应用自带每行复选框(aria-label="选择密码库项目")与表头全选(aria-label="全选"),
    *    平时用 CSS 把这两列塌缩为 0, 进入选择模式再放出来。
    *
    *    ⚠️ 窄屏的「新增」不能复制一份: 它弹出的 cdk-overlay-pane.bit-menu-panel
    *       是锚定"触发按钮"的浮层, 复制出来的按钮点开, 菜单仍弹在按钮旁边的原位置。
-   *       做法是保留原按钮, 用 position:absolute + translate 把它平移到表头槽位里
-   *       (容器 main#main-content 在 CSS 里已设 position:relative), 浮层自然跟着槽位走。
+   *       做法是把原按钮整个 appendChild 进表头槽位 —— 浮层打开时读的是触发按钮
+   *       当时的 rect, 节点搬到哪它就跟到哪。
+   *
+   *    ⚠️ v4 用的是 position:absolute + translate 平移到槽位, 已废弃。那个方案
+   *       只在 syncChrome()/2s 轮询时重算坐标, 而展开筛选抽屉会把表格整体推下
+   *       398px —— 实测按钮会悬在表头上方 398px, 且要等下一次轮询才纠正。
+   *       appendChild 没有坐标可错, 布局怎么变都跟着走。
    * ===================================================================== */
 
   var NARROW_PX = 768;
@@ -588,49 +609,35 @@
     return null;
   }
 
-  function resetNewBtn() {
-    var m = document.querySelector("vault-new-cipher-menu");
-    if (!m || m.style.position !== "absolute") return;
-    m.style.position = "";
-    m.style.left = "";
-    m.style.top = "";
-    m.style.zIndex = "";
-    m.style.transform = "";
-  }
+  /* 「新增」按钮的原始落点; 宽屏 / 离开列表页时要还回去 */
+  var newBtnHome = null;
 
-  function positionNewBtn() {
+  function dockNewBtn() {
     var menu = document.querySelector("vault-new-cipher-menu");
+    if (!menu) { newBtnHome = null; return; }
+
     var bar = document.getElementById("warden-headbar");
     var slot = bar ? bar.querySelector(".warden-headslot") : null;
-    var host = document.querySelector("main#main-content");
 
-    if (!menu || !slot || !host || !isNarrow()) {
-      resetNewBtn();
+    if (!isNarrow() || !slot) {
+      if (newBtnHome && newBtnHome.parent && newBtnHome.parent.isConnected &&
+          newBtnHome.parent !== slot && menu.parentNode !== newBtnHome.parent) {
+        if (newBtnHome.next && newBtnHome.next.parentNode === newBtnHome.parent) {
+          newBtnHome.parent.insertBefore(menu, newBtnHome.next);
+        } else {
+          newBtnHome.parent.appendChild(menu);
+        }
+      }
       return;
     }
 
-    // 先按原尺寸校准槽位, 免得按钮比槽宽而压到「选择」
-    var mr0 = menu.getBoundingClientRect();
-    if (mr0.width) {
-      var w = Math.round(mr0.width) + "px";
-      if (slot.style.width !== w) slot.style.width = w;
-    }
-    if (mr0.height) {
-      var h = Math.round(mr0.height) + "px";
-      if (slot.style.height !== h) slot.style.height = h;
+    // 第一次(或上一次记的落点已被 Angular 销毁)时记下落点
+    var homeOk = newBtnHome && newBtnHome.parent && newBtnHome.parent.isConnected;
+    if (!homeOk && menu.parentNode !== slot) {
+      newBtnHome = { parent: menu.parentNode, next: menu.nextSibling };
     }
 
-    var sr = slot.getBoundingClientRect();
-    var hr = host.getBoundingClientRect();
-    if (!sr.height) return;
-
-    menu.style.position = "absolute";
-    menu.style.left = "0";
-    menu.style.top = "0";
-    menu.style.zIndex = "4";
-    menu.style.transform =
-      "translate(" + Math.round(sr.left - hr.left + host.scrollLeft) + "px," +
-      Math.round(sr.top - hr.top + host.scrollTop) + "px)";
+    if (menu.parentNode !== slot) slot.appendChild(menu);
   }
 
   function ensureHeadbar() {
@@ -663,7 +670,7 @@
 
     var sl = bar.querySelector(".warden-headslot");
     if (sl) sl.style.display = isNarrow() ? "" : "none";
-    positionNewBtn();
+    dockNewBtn();
   }
 
   /* ---- 7.1 窄屏筛选抽屉 ------------------------------------------------
@@ -721,16 +728,116 @@
   function updateFilterToggle() {
     var label = document.querySelector("#warden-filterbar .warden-filter-label");
     if (!label) return;
-    // 应用自身会把当前筛选名写进页面标题
+    // 应用自身会把当前筛选名写进页面标题(该页头在窄屏被 display:none 藏了,
+    // 但 textContent 照样读得到)
     var h = document.querySelector("app-vault-header h1");
     var txt = h ? (h.textContent || "").trim() : "";
-    label.textContent = txt || "所有项目";
+    var next = txt || "所有项目";
+    // ⚠️ 必须判变化再写。直接重复赋值会替换文本节点 -> MutationObserver 又触发
+    //    boot() -> 再赋值, 400ms 一轮空转。
+    if (label.textContent !== next) label.textContent = next;
   }
 
   function dropFilterToggle() {
     var bar = document.getElementById("warden-filterbar");
     if (bar && bar.parentNode) bar.parentNode.removeChild(bar);
     document.body.classList.remove("warden-filter-open");
+  }
+
+  /* ---- 7.2 窄屏「设置」页的账户卡片 ------------------------------------
+   *     窄屏把右上角头像藏了, 它的几个动作挪到设置页顶部。
+   *     锁定/注销没有公开路由, 只能借应用自己的 account-menu 触发: 先给浮层挂
+   *     一个"隐身"类(opacity:0), 程序化点开 + 点中目标项, 用户看不到左上角闪一下。
+   * -------------------------------------------------------------------- */
+
+  function triggerAccountAction(label) {
+    var btn = document.querySelector("app-account-menu button");
+    if (!btn) return false;
+    document.body.classList.add("warden-ghost-menu");
+    btn.click();
+    setTimeout(function () {
+      var items = document.querySelectorAll(
+        ".cdk-overlay-pane.bit-menu-panel button, .cdk-overlay-pane.bit-menu-panel a"
+      );
+      for (var i = 0; i < items.length; i++) {
+        if (norm(items[i].innerText || items[i].textContent) === norm(label)) {
+          items[i].click();
+          break;
+        }
+      }
+      setTimeout(function () {
+        document.body.classList.remove("warden-ghost-menu");
+      }, 400);
+    }, 60);
+    return true;
+  }
+
+  function ensureAccountCard() {
+    var card = document.getElementById("warden-acctcard");
+    var want = isNarrow() && currentRoute().indexOf("/settings") === 0;
+
+    if (!want) {
+      if (card && card.parentNode) card.parentNode.removeChild(card);
+      return;
+    }
+
+    var host = document.querySelector("main#main-content");
+    if (!host) return;
+
+    if (!card) {
+      card = document.createElement("div");
+      card.id = "warden-acctcard";
+      card.className = "warden-acctcard";
+      card.innerHTML =
+        '<div class="warden-acct-id">' +
+          '<span class="warden-acct-avatar"></span>' +
+          '<span class="warden-acct-text">' +
+            '<b class="warden-acct-name"></b>' +
+            '<span class="warden-acct-mail"></span>' +
+          '</span>' +
+        '</div>' +
+        '<div class="warden-acct-acts">' +
+          '<button type="button" data-act="account">账户设置</button>' +
+          '<button type="button" data-act="lock">立即锁定</button>' +
+          '<button type="button" data-act="logout" class="warden-acct-danger">注销</button>' +
+        '</div>';
+      card.addEventListener("click", function (ev) {
+        var b = ev.target && ev.target.closest ? ev.target.closest("button[data-act]") : null;
+        if (!b) return;
+        var act = b.getAttribute("data-act");
+        if (act === "account") location.hash = "#/settings/account";
+        else if (act === "lock") triggerAccountAction("立即锁定");
+        else if (act === "logout") {
+          if (window.confirm("确定要注销当前账户吗？")) triggerAccountAction("注销");
+        }
+      });
+    }
+
+    // 插到页头之后 —— 直接插成 main 的首个子节点会跑到"我的账户"标题上面去
+    if (card.parentNode !== host) {
+      var hd = host.querySelector("app-header");
+      if (hd && hd.parentNode) hd.parentNode.insertBefore(card, hd.nextSibling);
+      else host.insertBefore(card, host.firstChild);
+    }
+
+    var p = (SYNC && SYNC.profile) || {};
+    // 应用自己的头像缩写(如 "US")比 profile.name 可靠; 它被 CSS 藏了,
+    // 但 textContent 照样读得到(innerText 会因 display:none 变空)
+    var avBtn = document.querySelector("app-account-menu button");
+    var initials = avBtn ? String(avBtn.textContent || "").replace(/\s+/g, "") : "";
+
+    // 同样判变化再写, 免得喂给 MutationObserver
+    var nm = card.querySelector(".warden-acct-name");
+    var ml = card.querySelector(".warden-acct-mail");
+    var av = card.querySelector(".warden-acct-avatar");
+    // profile.name 有可能是空的, 那就把邮箱提到主行, 别显示一个空标题
+    var mail = p.email || "";
+    var name = p.name || mail || "账户";
+    var sub = p.name ? mail : "";
+    var initial = String(initials || name).trim().charAt(0).toUpperCase() || "?";
+    if (nm && nm.textContent !== name) nm.textContent = name;
+    if (ml && ml.textContent !== sub) ml.textContent = sub;
+    if (av && av.textContent !== initial) av.textContent = initial;
   }
 
   // 只在保险库列表页生效的"外壳"
@@ -742,8 +849,9 @@
       else dropFilterToggle();
     } else {
       dropFilterToggle();
-      resetNewBtn();
+      dockNewBtn();
     }
+    ensureAccountCard();
   }
 
   function setSelecting(on) {
@@ -1151,6 +1259,7 @@
         closeAuthView();
         document.body.classList.remove("warden-filter-open");
       }
+      syncChrome();
     });
 
     // 断点切换(横竖屏)时重排"新增"按钮的落点
@@ -1180,7 +1289,7 @@
     });
     observer.observe(document.body, { childList: true, subtree: true });
 
-    console.log(LOG, "injected (v4)");
+    console.log(LOG, "injected (v5)");
   }
 
   if (document.readyState === "loading") {

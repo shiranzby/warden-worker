@@ -1,5 +1,5 @@
 /*
- * warden-worker / shypwd.cc.cd — 自定义前端样式 (v3)
+ * warden-worker / shypwd.cc.cd — 自定义前端样式 (v5)
  *
  * 线上实测结论(2026-09):
  *  - 不适配手机的根因之一是 index.html 的 <meta viewport content="width=1010">,
@@ -15,7 +15,7 @@
  *     th.tw-w-24  colspan=2  -> 复选框 + 站标图标
  *     th.tw-w-3/5            -> 名称
  *     th.tw-w-2/5            -> 所有者(窄屏 tw-hidden)
- *     th.tw-w-12             -> 操作菜单
+ *     th.tw-w-12             -> 操作菜单(徽章与三点都塞在这个单元格里)
  *   所以: 不能新增 <td>(多出第 6 列), 也不能对表头/单元格用 display:none(打乱列映射)。
  *   要收缩某列, 只能改对应 th 的宽度; 隐藏单元格内容用 visibility(不改变布局)。
  */
@@ -64,11 +64,13 @@ body.warden-selecting tr[appvaultcipherrow] td:nth-child(1) > * {
 table thead th.tw-w-12 {
   width: 124px !important;
 }
-td.warden-totp-host {
-  display: flex !important;
-  align-items: center !important;
-  justify-content: flex-end !important;
-  gap: 8px !important;
+/* ⚠️ 绝对不要给 td 加 display:flex —— td 一旦变成 flex 容器就不再是 table-cell,
+   会被塞进一个匿名单元格里, 高度只按内容算(实测 46px, 而行高 79px),
+   于是"相对整行居中"永远做不到。用原生 table-cell + vertical-align:middle
+   + text-align:right 才对。 */
+tr[appvaultcipherrow] td.warden-totp-host {
+  vertical-align: middle !important;
+  text-align: right !important;
   white-space: nowrap !important;
 }
 tr[appvaultcipherrow] td {
@@ -77,19 +79,17 @@ tr[appvaultcipherrow] td {
 }
 
 /* ======================================================================
- * C. 「名称」行里的表头工具行(选择 / 窄屏新增) + 窄屏筛选抽屉
+ * C. 「名称」行里的表头工具行(新增 / 选择) + 窄屏筛选抽屉
  *
- *    main#main-content 被设为定位容器: custom.js 把应用原本的「新增」按钮
- *    用 position:absolute + translate 平移到表头槽位。为什么不能复制一份按钮:
- *    点「新增」弹出的是 cdk-overlay-pane.bit-menu-panel, 锚定"触发按钮"定位,
- *    复制出来的按钮点开, 菜单仍然弹在原按钮旁边。搬原按钮才能让浮层跟着走。
+ *    custom.js 把应用原本的「新增」按钮整个 appendChild 进 .warden-headslot。
+ *    两个不可行方案记在这里, 免得以后又走回头路:
+ *      1) 不能复制一份按钮 —— 点「新增」弹出的是 cdk-overlay-pane.bit-menu-panel,
+ *         它锚定"触发按钮"的 rect, 复制出来的按钮点开菜单仍弹在原按钮旁边。
+ *      2) 不能用 position:absolute + translate 把原按钮"平移"过来 —— 浮层确实
+ *         跟着走了, 但坐标只在轮询时重算; 展开筛选抽屉会把表格整体推下 398px,
+ *         实测按钮因此悬在表头上方 398px, 要等下一次轮询才纠正。
+ *    appendChild 没有坐标可错, 布局怎么变按钮都跟着槽位走。
  * ====================================================================== */
-@media (max-width: 768px) {
-  /* 只在窄屏挂定位容器, 免得影响桌面端应用自身的绝对定位元素 */
-  main#main-content {
-    position: relative;
-  }
-}
 
 table thead th.warden-name-th {
   position: relative;
@@ -103,30 +103,48 @@ table thead th.warden-name-th {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 6px;
+  gap: 8px;
   white-space: nowrap;
 }
 
-/* 「新增」按钮的落点槽位; 宽高由 js 按真实按钮测量后回填 */
+/* 「新增」按钮的落点槽位; 按钮是它的真实子节点, 不再靠坐标对齐 */
 .warden-headslot {
-  display: inline-block;
+  display: inline-flex;
   flex: 0 0 auto;
+  align-items: center;
+}
+#warden-headbar vault-new-cipher-menu {
+  display: inline-flex;
 }
 
+/* 「新增」与「选择」统一成同尺寸胶囊: 高度 / 字号 / 圆角 / 内边距全部对齐 */
+#warden-headbar vault-new-cipher-menu button,
 .warden-selbar-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  flex: 0 0 auto;
-  border: 1px solid rgba(0, 0, 0, 0.22);
-  background: transparent;
-  color: var(--color-text-secondary, #4b5563);
-  border-radius: 999px;
-  padding: 4px 12px;
-  font-size: 12px;
-  font-family: inherit;
-  line-height: 1.4;
-  cursor: pointer;
+  box-sizing: border-box !important;
+  height: 28px !important;
+  min-height: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 4px !important;
+  padding: 0 12px !important;
+  border-radius: 999px !important;
+  font-family: inherit !important;
+  font-size: 12px !important;
+  line-height: 1 !important;
+  font-weight: 500 !important;
+}
+#warden-headbar vault-new-cipher-menu button {
+  border: 1px solid transparent !important;
+}
+#warden-headbar vault-new-cipher-menu button .bwi {
+  font-size: 12px !important;
+  line-height: 1 !important;
+}
+.warden-selbar-toggle {
+  border: 1px solid rgba(0, 0, 0, 0.22) !important;
+  background: transparent !important;
+  color: var(--color-text-secondary, #4b5563) !important;
 }
 .warden-selbar-toggle svg {
   width: 12px;
@@ -138,9 +156,9 @@ table thead th.warden-name-th {
   stroke-linejoin: round;
 }
 .warden-selbar-toggle.warden-selbar-on {
-  border-color: #175ddc;
-  color: #175ddc;
-  background: rgba(23, 93, 220, 0.08);
+  border-color: #175ddc !important;
+  color: #175ddc !important;
+  background: rgba(23, 93, 220, 0.08) !important;
 }
 
 /* ---- 窄屏筛选抽屉: 默认收起, 点按钮展开成竖排面板 ---- */
@@ -369,8 +387,13 @@ body.warden-authview-on .warden-authview {
     color: #9ca3af;
   }
   .warden-selbar-toggle {
-    border-color: rgba(255, 255, 255, 0.24);
-    color: #9ca3af;
+    border-color: rgba(255, 255, 255, 0.24) !important;
+    color: #9ca3af !important;
+  }
+  .warden-selbar-toggle.warden-selbar-on {
+    border-color: #7aa7ff !important;
+    color: #7aa7ff !important;
+    background: rgba(122, 167, 255, 0.12) !important;
   }
   .warden-authview {
     background: #1f2329;
@@ -395,11 +418,6 @@ body.warden-authview-on .warden-authview {
   }
   .warden-auth-user {
     color: #9ca3af;
-  }
-  .warden-selbar-toggle.warden-selbar-on {
-    border-color: #7aa7ff;
-    color: #7aa7ff;
-    background: rgba(122, 167, 255, 0.12);
   }
   .warden-filter-toggle {
     border-color: rgba(255, 255, 255, 0.18);
@@ -554,8 +572,7 @@ body.warden-authview-on .warden-authview {
 
   /* F4. 徽章窄屏收紧 */
   .warden-totp-code {
-    min-width: 78px !important;
-    padding: 3px 8px 12px !important;
+    min-width: 78px;
   }
   .warden-totp-digits {
     font-size: 12.5px !important;
@@ -739,16 +756,137 @@ body.warden-authview-on .warden-authview {
     padding: 0 !important;
   }
 
-  /* H7. 表头行收紧, 给「名称」行的工具按钮腾高度 */
+  /* H7. 表头行: 文字降一档, 内边距留够 28px 的胶囊按钮 */
   table thead th.warden-name-th {
-    padding-top: 2px !important;
-    padding-bottom: 2px !important;
-  }
-  vault-new-cipher-menu button {
-    height: 32px !important;
-    min-height: 0 !important;
-    padding-left: 10px !important;
-    padding-right: 10px !important;
+    padding-top: 6px !important;
+    padding-bottom: 6px !important;
     font-size: 13px !important;
+    font-weight: 500 !important;
+  }
+}
+
+/* ======================================================================
+ * I. 窄屏: 去掉重复的页头, 账户动作挪到设置页
+ *    底部标签栏已经标明当前分区, 当前筛选名由筛选抽屉按钮显示,
+ *    所以密码库页的「所有密码库 + 视图切换 + US 头像」整条是冗余的。
+ * ====================================================================== */
+@media (max-width: 768px) {
+  main#main-content app-vault-header {
+    display: none !important;
+  }
+  /* 其余页保留标题, 只藏右上角头像(账户动作在设置页顶部卡片里) */
+  main#main-content app-account-menu {
+    display: none !important;
+  }
+}
+
+/* 触发「立即锁定 / 注销」时给 cdk 浮层挂的隐身类 ——
+   头像被藏起来后浮层会锚在 (0,0) 闪一下, 把它盖掉 */
+body.warden-ghost-menu .cdk-overlay-container {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* 设置页顶部的账户卡片(custom.js 注入, 仅窄屏) */
+.warden-acctcard {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .warden-acctcard {
+    display: block;
+    margin: 0 0 10px;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    border-radius: 12px;
+    background: #f7f8fa;
+    overflow: hidden;
+  }
+  .warden-acct-id {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+  }
+  .warden-acct-avatar {
+    flex: 0 0 auto;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: #0f7b7b;
+    color: #ffffff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .warden-acct-text {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .warden-acct-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: #111827;
+  }
+  .warden-acct-mail {
+    font-size: 12px;
+    color: #6b7280;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .warden-acct-acts {
+    display: flex;
+    border-top: 1px solid rgba(0, 0, 0, 0.08);
+  }
+  .warden-acct-acts button {
+    flex: 1 1 0;
+    min-width: 0;
+    height: 38px;
+    border: 0;
+    border-right: 1px solid rgba(0, 0, 0, 0.08);
+    background: transparent;
+    color: #175ddc;
+    font-family: inherit;
+    font-size: 13px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .warden-acct-acts button:last-child {
+    border-right: 0;
+  }
+  .warden-acct-acts button:active {
+    background: rgba(0, 0, 0, 0.04);
+  }
+  .warden-acct-danger {
+    color: #c62828 !important;
+  }
+}
+
+@media (max-width: 768px) and (prefers-color-scheme: dark) {
+  .warden-acctcard {
+    background: #262b33;
+    border-color: rgba(255, 255, 255, 0.12);
+  }
+  .warden-acct-name {
+    color: #f3f4f6;
+  }
+  .warden-acct-mail {
+    color: #9ca3af;
+  }
+  .warden-acct-acts {
+    border-top-color: rgba(255, 255, 255, 0.1);
+  }
+  .warden-acct-acts button {
+    color: #7aa7ff;
+    border-right-color: rgba(255, 255, 255, 0.1);
+  }
+  .warden-acct-acts button:active {
+    background: rgba(255, 255, 255, 0.06);
+  }
+  .warden-acct-danger {
+    color: #ff8a8a !important;
   }
 }
