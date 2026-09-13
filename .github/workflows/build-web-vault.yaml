@@ -242,8 +242,34 @@ jobs:
             || { echo "❌ 产物里找不到 J17(组件选择器 'app-mobile-tab-bar')" >&2; fail=1; }
           echo "warden-tabbar 总出现次数: $(grep -o 'warden-tabbar' .main.js | wc -l)  (官方基线为 0)"
 
+          # 7) J9 窄屏筛选抽屉  ← vault-filter.component.{ts,html} + css/vaultwarden.css(J9 段)
+          #    L4 §7.1 是往 app-vault-filter 注入 #warden-filterbar、切 body 的 class。
+          #    源码层改成: 官方 vault-filter 组件自己持有 filterSectionsExpanded,
+          #    模板给 filters-body 绑 [class.warden-filter-collapsed], 开关是模板内元素。
+          #
+          #    断言两个**类名字面量**(不参与标识符混淆), 实测官方基线**都不含**:
+          #      warden-filter-toggle     —— 开关的静态 class
+          #      warden-filter-collapsed  —— 收起态的类绑定名(编译成 ɵɵclassProp("…"))
+          #    ⚠️ 不要断言 app-vault-filter / aria-expanded: 官方本来就都有,
+          #       按它们断言等于"没迁也能过"(实测两边都 HIT, 已弃用)。
+          #    CSS 那一半的段标记在下面第 8 项。
+          grep -qF 'warden-filter-toggle' .main.js \
+            || { echo "❌ 产物里找不到 J9(开关 class 'warden-filter-toggle')" >&2; fail=1; }
+          grep -qF 'warden-filter-collapsed' .main.js \
+            || { echo "❌ 产物里找不到 J9(收起态类绑定 'warden-filter-collapsed')" >&2; fail=1; }
+          echo "warden-filter-toggle 总出现次数: $(grep -o 'warden-filter-toggle' .main.js | wc -l)  (官方基线为 0)"
+
+          # 8) J9 的样式段  ← apps/web/src/css/vaultwarden.css
+          #    同 F/G 段: CSS 不参与 minify, 用**中文段标记**断言最稳(值可能被后续调整,
+          #    段标记只在整段被删/rebase 冲掉时才消失)。
+          #    收起规则必须写在 @media (max-width:768px) 里 —— 放外面会让桌面端也收起。
+          grep -q '窄屏筛选抽屉' .vw.css \
+            || { echo "❌ css/vaultwarden.css 里找不到 J9 段(窄屏筛选抽屉)" >&2; fail=1; }
+          grep -q '\.warden-filter-collapsed' .vw.css \
+            || { echo "❌ J9 段里找不到收起规则(.warden-filter-collapsed)" >&2; fail=1; }
+
           [ "${fail}" -eq 0 ] || exit 1
-          echo "✅ 六项源码级定制(F/J8/J12/J17 + 视口 + 主密码长度)均已在实际产物中得到验证"
+          echo "✅ 八项源码级定制(F/G/J8/J9/J12/J17 + 视口 + 主密码长度)均已在实际产物中得到验证"
 
       - name: Disk space after
         if: always()
