@@ -66,17 +66,71 @@
 - 结论：**我们这个个人密码库场景，L3 完全在 GPL-3.0 之下**，改它、重发它都合法
   （GPL 的义务是：对外分发修改版时须一并提供源码）。
 
-### 1.3 所以"能不能改 L3"——能，有三条路，我们已经用了一条
+### 1.3 所以"能不能改 L3"——能，有四条路
 
 | 路径 | 做法 | 现状 | 代价 |
 |---|---|---|---|
-| **(a) 构建期打补丁** | CI 里对压缩产物做定值替换 | **已在用**：`sed 's/minimumPasswordLength=12/=8/'`（`push-cloudflare.yaml`） | 低。但依赖压缩后的字面量，**上游一改就静默失效** |
+| **(a) 构建期打补丁** | CI 里对压缩产物做定值替换 | **已在用**：`sed 's/minimumPasswordLength=12/=8/'` | 低。但依赖压缩后的字面量，上游一改就静默失效 |
 | **(b) 运行期改 DOM** | 就是 `custom/` 这一层 | 在用（本文对象） | 中。上游改结构即失效 → 靠 §4 契约探针兜 |
-| **(c) 从源码重建自己的 web-vault** | fork `bitwarden/clients`，自行构建 | **不做**（§8.1） | **高**：要拉整个 nx monorepo + Angular 工具链，且永久跟随上游改动 |
+| **(d) fork `bw_web_builds`** | 借用现成的"拉源码→打补丁→构建"流水线，把我们的改动写成补丁 | **未用，但成本远低于 (c)** | **中**：每个上游版本要 rebase 一次我们的补丁 |
+| **(c) 从源码重建** | 自己 fork `bitwarden/clients`，从零搭构建 | **不做**（§8.1） | **高**：要自己搭整个 nx monorepo + Angular 工具链并长期跟随 |
+
+#### 重点说明 (d)：这条路原先被漏掉了
+
+`dani-garcia/bw_web_builds`（就是 CI 现在下载预编译产物的那个仓库）**本身就是一个源码构建流水线**，
+不是"只放 release 文件"的仓库。实测它的结构：
+
+```
+.github/           GitHub Actions（构建 + 发 release）
+Makefile           make full / make build（node+npm 或 docker 两种方式）
+patches/           ← 每个上游版本一个 .patch（v2024.1.0.patch … v2025.4.1.patch，约 28–40 KB 一个）
+scripts/           checkout_web_vault.sh / build_web_vault.sh / package_web_vault.sh / gh_release.sh
+resources/         品牌资源（logo 等）
+Dockerfile
+```
+
+补丁是**标准的 git diff，直接改原始 TypeScript/HTML**，例如：
+
+```diff
+--- a/apps/web/src/app/admin-console/organizations/layouts/organization-layout.component.ts
++++ b/apps/web/src/app/admin-console/organizations/layouts/organization-layout.component.ts
+@@ -186,6 +186,7 @@ export class OrganizationLayoutComponent implements OnInit {
+   canShowBillingTab(organization: Organization): boolean {
++    return false; // disable billing tab in Vaultwarden
+     return canAccessBillingTab(organization);
+   }
+```
+
+**所以 (d) 的做法是**：fork `bw_web_builds` → 我们的改动写成补丁（建议**独立成一个 patch 文件**，
+按顺序打在版本补丁之后，这样版本升级时只需 rebase 我们那一个）→ 让它构建出**我们自己的** web-vault
+tarball → 本仓库 CI 只改一行：下载地址从 `dani-garcia/bw_web_builds` 换成我们自己的 fork。
+
+**这跟 (c) 的本质区别**：build 脚本、打补丁惯例、发布流程全部是现成的且有人在维护，
+我们只需要维护"我们那一个补丁文件"。**代价从"搭一套构建"降到"维护一个 diff"。**
 
 **为什么不选 (c)：不是法律/黑盒限制，纯粹是成本。** 而既然 (a) 已经在用、且 §1.1 让我们
 能读到原文，(a) 的性价比明显上升：**凡是"用 CSS/DOM 很难做干净、但源码里是个明确字面量"的改动，
 优先考虑 (a)**。典型候选见 §9.5。
+
+### 1.4 L4（`custom/`）是谁加的？—— 是我们加的，上游没有
+
+已核实：
+
+- 上游 `qaz741wsd856/warden-worker` 的 `origin/main` **没有 `custom/` 目录**。
+- `custom/` 与 CI 的注入步骤（"Inject shypwd custom frontend"）是在同一个我们自己的提交
+  `7dca0cb`（2026-09-12）里一起引入的，**只存在于我们的 fork**。
+
+**所以 L4 不是"这个项目本来就有的一层"，而是"我们选择不做 (c)/(d) 之后自己造的一层"。**
+它存在的理由只有一个：**我们不想维护一个自己构建的前端**。
+一旦改走 (d)（或 (c)），前端那些定制就**搬进源码补丁**，L4 这一层对**前端部分**就不需要了。
+
+> ⚠️ 但要区分清楚：L4 现在**不只是**前端补丁。它还兜了两类东西：
+> 1. **前端观感/布局定制**（TOTP 徽章、底栏、选择模式、下拉面板…）→ 走 (d) 后可进源码补丁。
+> 2. **能力层**：劫持 `fetch`/XHR 抓 `sync` 明文与 token、走 DI 容器解密（§3 表格第 12/13 项）
+>    → 这些**同样**可以进源码补丁（在源码里改，比劫持 fetch 干净得多）。
+>
+> 也就是说：**(d) 确实能让 L4 整体消失**，代价是把维护点转移到"补丁要跟着上游版本 rebase"。
+> 这是一个**真选择**，不是"显然该做/不该做"，判据见 §9.6。
 
 ---
 
@@ -262,10 +316,11 @@ custom/
 
 ## 8. 明确"不做"的事（避免重复讨论）
 
-1. **不从 Bitwarden 源码重建自己的 web-vault**（路径 (c)）——
+1. **不从零搭自己的 web-vault 构建**（路径 (c)）——
    **注意：这不是因为"L3 不开源"或"是黑盒"**（见 §1.1/§1.2：L3 是 GPL-3.0，且原始源码随 map 可读）。
-   纯粹是成本：需要完整 nx monorepo + Angular 工具链，且永久跟随上游。
+   纯粹是成本：需要自己搭完整 nx monorepo + Angular 工具链，且永久跟随上游。
    **但 (a) 构建期打补丁是允许且已在用的**（§1.3），别把它和 (c) 一起排除掉。
+   **(d) fork `bw_web_builds` 也未被排除** —— 它是"借用别人现成流水线"的折中，是否切换见 §9.6。
 2. **不尝试注入 Angular 组件 / 拿组件实例** —— 生产构建下 `__ngContext__` 是数字、`window.ng` 不存在；DI 容器只挂 `attachToGlobal / getKeyService / getEncryptService`（已实测）。
 3. **不改别人拥有的状态** —— 见 §2 铁律。
 4. **不新增 CI 构建步骤** —— 产物入库，CI 保持"只 cp"。
@@ -314,3 +369,35 @@ v12（方案 B：不动控件、只按可见区重定位面板）已部署并验
 **想请你补充**：有没有哪些**具体行为**你希望"根上就改掉"，而不是在界面层绕？
 （例如某个默认值、某个固定文案、某处不希望出现的入口。）
 有的话我按上面的判据评估走 (a) 还是 (b)；没有就按 §6 顺序从 `select-panel` 开始。
+
+### 9.6 ⭐ 要不要改走 (d)：fork `bw_web_builds`，让 L4 整体消失？
+
+这是本轮最需要你拍板的一件事。前提已澄清（§1.3/§1.4）：**L4 是我们自己加的，不是项目原有的；
+它存在的唯一理由是"我们不想维护一个自己构建的前端"。**
+
+**两条路的对比**
+
+| | 保持现状（(b) 运行期改 DOM） | 改走 (d)（fork `bw_web_builds`） |
+|---|---|---|
+| 改动落点 | `custom/custom.js`（现 1931 行）+ `custom.css` | 一个源码补丁文件（git diff） |
+| 改一次前端要多久 | 改文件 → 推 → CI 约 3–4 分钟（**CI 不构建前端**，只下载 tarball） | 改补丁 → 触发 `bw_web_builds` 构建（**要编译整个 Angular 应用**）→ 再部署 |
+| 上游换版本（Bitwarden 发新版） | **基本无感**（DOM 变了才需要跟） | **必须 rebase 我们的补丁**，冲突要人处理 |
+| 能做多深 | 只限于 DOM 能触及的；碰不到组件内部、路由、数据流 | 源码级，想改哪改哪 |
+| 现状脆弱点 | 依赖 DOM 契约，上游改结构就静默失效（→ §4 探针） | 补丁冲突是**编译期就报错**，不会静默 |
+| 额外依赖 | 无 | 多一个 fork 仓库 + 一套构建 CI |
+| 失败模式 | 页面某功能悄悄失灵 | **构建失败 → 完全发不出去**（目前前端零构建风险） |
+
+**我的建议：先不急着切，但把 (d) 当作一条真实可选的路。**
+
+理由是现在的痛点（下拉、选择模式）都是 **DOM 层能解决的**，而 L4 已经建好了、还在跑；
+(d) 的收益（源码级能力）**目前用不上**，但它的代价（每次上游换版本要 rebase、CI 多一个会失败环节、前端改动反馈从 4 分钟变成几十分钟）**马上就付**。
+
+**但有一个触发条件会改变结论**：如果接下来出现「**DOM 层根本做不到、或必须反复打补丁**」的需求
+（例如要改路由、要改组件内部数据流、要在构建期彻底去掉某些入口），那就是切 (d) 的信号 —— 届时我们照 §1.3 的做法迁移。
+
+**所以想请你确认**：
+
+1. 你的目标是"**把它改成我的 Bitwarden 版本**"（那 (d)/(c) 是对的方向，L4 最终会消失）；
+   还是"**在现成产品上做我的定制**"（那 L4 是合适的，继续按 §6 重构它）？
+2. 如果是前者 —— 你想改的是**前端界面**，还是也包括 **warden-worker 自己的 Rust 后端**？
+   （后端源码**就在这个仓库里**（`src/`，MIT 许可），改它**不需要**任何新流水线，直接改直接部署。）
