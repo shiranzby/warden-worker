@@ -1483,6 +1483,9 @@
     /* 表头 ⋯ 与行内 ⋯ 对齐(见表头的注释): 行数/列宽/选择模式一变就会漂,
        放在这里每次同步都校正一次。 */
     alignHeaderDots();
+    /* 手机端: 闸住 ng-select 内部搜索框的软键盘(见 §8.5)。
+       Angular 每次重建表单都会把 input 换新的, 所以每次同步都要补一遍。 */
+    muteSelectKeyboard();
   }
 
   function setSelecting(on) {
@@ -1575,6 +1578,38 @@
     t.classList.add("warden-toast-on");
     clearTimeout(t.__timer);
     t.__timer = setTimeout(function () { t.classList.remove("warden-toast-on"); }, 2400);
+  }
+
+  /* =====================================================================
+   * 8.5 别让 ng-select 的搜索框弹出输入法 (v11, 手机端)
+   *
+   *     Bitwarden 的下拉是 ng-select **searchable**, 内部有个真实的
+   *     <input type="text">。手机上戳一下: 容器确实把面板展开了(实测 71 个选项、
+   *     z=2400、y=425 高 406), 但**同一个动作也会 focus 那个 input** →
+   *     iOS 弹出软键盘, 而面板是向下展开的(ng-select-bottom), 整块正好落在
+   *     键盘后面 → 用户只看到输入法, 看不到选项(用户截图: 字段里出现光标 + 满屏键盘)。
+   *
+   *     ⚠️ 所以"抽屉选项拉不出来"是误判 —— 面板一直都在, 是**被键盘盖住了**。
+   *     ⚠️ 为什么桌面 + 无头浏览器永远测不出来: 它们没有软键盘, 面板自然可见。
+   *        这就是 v10 那轮"双引擎都复现不了"的真正原因。
+   *
+   *     修法: 窄屏把内部 input 设 readonly + inputmode="none" 双保险:
+   *       · readonly      —— iOS/Android 对 readonly 输入框**一定不弹键盘**(最稳)
+   *       · inputmode="none" —— 标准语义("不显示虚拟键盘"), iOS Safari 12.2+ 支持;
+   *                             但对 type=text 在部分 iOS 上会被忽略, 所以留 readonly 兜底
+   *     桌面端(>768px)刻意不动: 那边没有软键盘, 而且要靠打字筛选长列表。
+   * ===================================================================== */
+  var DESKTOP_MQ = window.matchMedia ? window.matchMedia("(min-width: 769px)") : null;
+  function muteSelectKeyboard() {
+    if (DESKTOP_MQ && DESKTOP_MQ.matches) return;      // 桌面: 保持可输入, 不碰
+    var inputs = document.querySelectorAll(
+      "main#main-content bit-select .ng-input input, main#main-content ng-select input[type=text]"
+    );
+    for (var i = 0; i < inputs.length; i++) {
+      var el = inputs[i];
+      if (el.getAttribute("inputmode") !== "none") el.setAttribute("inputmode", "none");
+      if (!el.readOnly) el.readOnly = true;            // 判变化再写, 免得喂 MutationObserver 空转
+    }
   }
 
   /* =====================================================================
@@ -1862,6 +1897,14 @@
       var t = ev.target;
       var b = t && t.closest ? t.closest("tr[appvaultcipherrow] button[biticonbutton]") : null;
       if (b) lastMenuRow = b.closest("tr[appvaultcipherrow]");
+    }, true);
+
+    /* §8.5 的兜底: 万一在"表单刚渲染、syncChrome 还没轮到"的几百毫秒空档里被戳了,
+       input 已经拿到焦点、键盘正在弹 —— 这里立刻补上 readonly, iOS 会把键盘收回去。
+       收窄到只认 ng-select 内部的 input, 绝不能碰登录框 / 密码库搜索框。 */
+    document.addEventListener("focusin", function (ev) {
+      var el = ev.target;
+      if (el && el.tagName === "INPUT" && el.closest && el.closest("ng-select")) muteSelectKeyboard();
     }, true);
 
     var observer = new MutationObserver(function (muts) {

@@ -191,6 +191,15 @@ if (want("guard")) {
     /* 三个控件逐个真实触摸。⚠️ 必须用 touchscreen.tap —— DOM 的 .click() 打不开
        ng-select(它监听 mousedown), 于是会误报"面板打不开"。 */
     ck(`G1 ${vw}x${vh} 导入页有 3 个选择控件`, n === 3, n);
+    /* ★ v11 回归点: 手机端必须闸住 ng-select 内部搜索框的软键盘。
+       用户实测: 一戳就弹输入法, 面板(向下展开)整块落在键盘后面 → 看不到选项。
+       修法是给内部 input 设 readonly + inputmode=none(见 custom.js §8.5)。 */
+    const kb = await page.evaluate(() => Array.from(document.querySelectorAll("main#main-content bit-select")).map((bs) => {
+      const inp = bs.querySelector(".ng-input input, input[type=text]");
+      return inp ? { ro: inp.readOnly, im: inp.getAttribute("inputmode") } : null;
+    }));
+    ck(`G1 ${vw}x${vh} ★ 内部搜索框已闸住键盘(readonly)`, kb.length === 3 && kb.every(x => x && x.ro === true), kb);
+    ck(`G1 ${vw}x${vh} ★ 内部搜索框 inputmode=none`, kb.length === 3 && kb.every(x => x && x.im === "none"), kb);
     for (let i = 0; i < n; i++) {
       await page.evaluate((k) => { const e = document.querySelectorAll("main#main-content bit-select")[k]; if (e) e.scrollIntoView({ block: "center" }); }, i);
       await sleep(700);
@@ -215,13 +224,16 @@ if (want("guard")) {
           const el = document.elementFromPoint(Math.round(ob.x + ob.width / 2), Math.round(ob.y + ob.height / 2));
           if (el && (el === o || o.contains(el))) clickable++;
         }
-        return { opened: true, y: Math.round(pb.y), firstOptY: first ? Math.round(first.y) : null, firstVisible: !!first && first.y >= 0, opts: opts.length, clickable, z: getComputedStyle(p).zIndex };
+        return { opened: true, y: Math.round(pb.y), firstOptY: first ? Math.round(first.y) : null, firstVisible: !!first && first.y >= 0, opts: opts.length, clickable, z: getComputedStyle(p).zIndex,
+          /* v11: 拿到焦点的如果正好是内部搜索框, 它必须是 readonly —— 否则真机上键盘会盖住面板 */
+          focusRO: (() => { const a = document.activeElement; return a && a.tagName === "INPUT" && a.closest("ng-select") ? a.readOnly : "n/a"; })() };
       });
       ck(`G1 ${vw}x${vh} 控件#${i} ★ 面板能拉出`, r.opened === true, r);
       ck(`G1 ${vw}x${vh} 控件#${i} ★ 顶部没被顶出屏幕`, r.opened && r.y >= 0, r);
       ck(`G1 ${vw}x${vh} 控件#${i} ★ 第一个选项可见`, r.firstVisible === true, r);
       ck(`G1 ${vw}x${vh} 控件#${i} ★ 选项可点`, r.clickable >= 1, r);
       ck(`G1 ${vw}x${vh} 控件#${i} z-index >= 原生 2050`, Number(r.z) >= 2050, r.z);
+      ck(`G1 ${vw}x${vh} 控件#${i} ★ 获得焦点的内部搜索框是 readonly(→ 不弹键盘)`, r.focusRO === "n/a" || r.focusRO === true, r.focusRO);
       if (SHOT) { fs.mkdirSync(OUT, { recursive: true }); await page.screenshot({ path: path.join(OUT, `guard-dropdown-${vw}-${i}.png`) }); }
       await page.keyboard.press("Escape").catch(() => {});
       await sleep(500);
@@ -233,7 +245,8 @@ if (want("guard")) {
   {
     const ctx = await newCtx(390, 844);
     const page = await ctx.newPage();
-    await login(page);
+    await ensureLoggedIn(page);   // ⚠️ 别用裸 login(): 偶发登录失败时下面所有选择器都是 null,
+                                  //    一个 bug 会伪装成一片 FAIL(G6 就这么中过一次)
     await go(page, "#/vault", 2500);
     const s = await page.evaluate(async () => {
       const out = []; const t0 = performance.now();
@@ -259,7 +272,8 @@ if (want("guard")) {
   {
     const ctx = await newCtx(1280, 800, true);
     const page = await ctx.newPage();
-    await login(page);
+    await ensureLoggedIn(page);   // ⚠️ 别用裸 login(): 偶发登录失败时下面所有选择器都是 null,
+                                  //    一个 bug 会伪装成一片 FAIL(G6 就这么中过一次)
     await go(page, "#/settings/account", 3500);
     const r = await page.evaluate(() => {
       const card = document.querySelector(".warden-acctcard");
@@ -297,7 +311,8 @@ if (want("guard")) {
       const slot = api.filter(x => x.s === null && x.m === r.request().method())[0];
       if (slot) slot.s = r.status();
     });
-    await login(page);
+    await ensureLoggedIn(page);   // ⚠️ 别用裸 login(): 偶发登录失败时下面所有选择器都是 null,
+                                  //    一个 bug 会伪装成一片 FAIL(G6 就这么中过一次)
     await go(page, "#/settings/account", 3500);
 
     const dataUrl = await page.evaluate(() => {
@@ -329,7 +344,8 @@ if (want("guard")) {
     await page.evaluate(() => {
       try { Object.keys(localStorage).filter(k => k.indexOf("warden.avatar.v1.") === 0).forEach(k => localStorage.removeItem(k)); } catch (e) {}
     });
-    await login(page);
+    await ensureLoggedIn(page);   // ⚠️ 别用裸 login(): 偶发登录失败时下面所有选择器都是 null,
+                                  //    一个 bug 会伪装成一片 FAIL(G6 就这么中过一次)
     await go(page, "#/settings/account", 4000);
     const cross = await page.evaluate(() => {
       const av = document.querySelector("#warden-acctcard .warden-acct-avatar");
@@ -345,7 +361,8 @@ if (want("guard")) {
   {
     const ctx = await newCtx(390, 844);
     const page = await ctx.newPage();
-    await login(page);
+    await ensureLoggedIn(page);   // ⚠️ 别用裸 login(): 偶发登录失败时下面所有选择器都是 null,
+                                  //    一个 bug 会伪装成一片 FAIL(G6 就这么中过一次)
     await go(page, "#/vault", 3500);
 
     const before = await page.evaluate(() => ({
@@ -412,11 +429,47 @@ if (want("guard")) {
     await ctx.close();
   }
 
+  hdr("② 回归点 G7 桌面端 select 不能被误伤 (v11)");
+  {
+    /* §8.5 只该在窄屏闸键盘。桌面没有软键盘, 而且要靠打字筛选长列表 ——
+       这条守着"别把修复应用到桌面"。 */
+    const ctx = await newCtx(1280, 800, true);
+    const page = await ctx.newPage();
+    await ensureLoggedIn(page);   // ⚠️ 别用裸 login(): 偶发登录失败时下面所有选择器都是 null,
+                                  //    一个 bug 会伪装成一片 FAIL(G6 就这么中过一次)
+    await go(page, "#/tools/import", 1500);
+    let n = 0;
+    for (let w = 0; w < 25; w++) {
+      n = await page.evaluate(() => document.querySelectorAll("main#main-content bit-select").length);
+      if (n > 0) break;
+      await sleep(400);
+    }
+    const ro = await page.evaluate(() => Array.from(document.querySelectorAll("main#main-content bit-select")).map((bs) => {
+      const inp = bs.querySelector(".ng-input input, input[type=text]");
+      return inp ? { ro: inp.readOnly, im: inp.getAttribute("inputmode") } : null;
+    }));
+    ck("G7 桌面 内部搜索框保持可输入(未被 readonly)", ro.length > 0 && ro.every(x => x && x.ro === false), ro);
+
+    // 打字筛选仍然生效: 选项数必须变少
+    await page.evaluate(() => document.querySelectorAll("main#main-content bit-select")[2].scrollIntoView({ block: "center" }));
+    await sleep(400);
+    const c = await page.evaluate(() => { const e = document.querySelectorAll("main#main-content bit-select")[2]; const b = e.getBoundingClientRect(); return { x: Math.round(b.x + Math.min(b.width / 2, 60)), y: Math.round(b.y + b.height / 2) }; });
+    await page.mouse.click(c.x, c.y);
+    await sleep(900);
+    const before = await page.evaluate(() => document.querySelectorAll(".ng-dropdown-panel .ng-option").length);
+    await page.keyboard.type("1pux");
+    await sleep(900);
+    const after = await page.evaluate(() => document.querySelectorAll(".ng-dropdown-panel .ng-option").length);
+    ck("G7 桌面 ★ 打字筛选仍生效", before > 0 && after > 0 && after < before, { before, after });
+    await ctx.close();
+  }
+
   hdr("② 回归点 G5 二级导航 chips 挂 main 内且不闪烁 (v8)");
   {
     const ctx = await newCtx(390, 844);
     const page = await ctx.newPage();
-    await login(page);
+    await ensureLoggedIn(page);   // ⚠️ 别用裸 login(): 偶发登录失败时下面所有选择器都是 null,
+                                  //    一个 bug 会伪装成一片 FAIL(G6 就这么中过一次)
     for (const [h, n] of [["#/tools", 3], ["#/settings", 5]]) {
       await go(page, h);
       const r = await page.evaluate(() => {
@@ -440,7 +493,7 @@ if (want("func")) {
   const errs = [];
   page.on("console", m => { if (m.type() === "error") errs.push(m.text().slice(0, 120)); });
   page.on("pageerror", e => errs.push("PAGEERROR " + String(e).slice(0, 120)));
-  await login(page);
+  await ensureLoggedIn(page);
 
   const tabs = await page.evaluate(() => { const t = document.getElementById("warden-tabbar"); return t ? Array.from(t.querySelectorAll("a,button")).map(a => (a.innerText || "").trim().split("\n")[0]) : null; });
   ck("F1 底栏 6 项", tabs && tabs.length === 6, tabs);
