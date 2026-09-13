@@ -31,8 +31,8 @@
 | **P2** 收编注入 | 视口 + 密码下限 + `vaultwarden.css` 进源码；`webvault/patches/` 退役 | ✅ |
 | **P3** 本地热重载 | `https://localhost:8080`，改源码即时生效（已实测逐字节验证） | ✅ |
 | **P4** 版本兼容评估 | 结论：**零后端改动**，新功能默认全关，UI 行为 ≈ 6.4 | ✅ |
-| **P5** 迁样式类改动 | A/B/C/E/F/G/H/I/J/J2/J3/K/L/M 共 14 段 / 1248 行 | 🟡 **H+K+M 已落地**（210 行）、**F 主部 + F5 已落地**、**G 段随 J17 落地**（81 行）、**C 段筛选抽屉半边随 J9 落地**（39 行）、**A 段 + C 段「名称」表头工具行随 J7 落地**（150 行，见 §3 第五批）、**I/J/J2/J3 随第六批落地**（见 §3 第六批）、**L 整体淘汰**（J12 改走官方对话框） |
-| **P6** 迁结构类改动 | TOTP 徽章 / 表头工具行 / 头像卡片 / 验证码页 / 底部标签栏 等 | 🟡 **已落地：J12 + J8 + J17 + J9 + J14 + J7（「选择」半边）+ J10 账户卡片 + J11 二级导航 + J13 头像上传 + 4b/I 段 + J6 行内 TOTP 徽章/B 段**；其余待做：J16（验证码页）、J15（ng-select 动态部分） |
+| **P5** 迁样式类改动 | A/B/C/E/F/G/H/I/J/J2/J3/K/L/M 共 14 段 / 1248 行 | 🟡 **H+K+M 已落地**（210 行）、**F 主部 + F5 已落地**、**G 段随 J17 落地**（81 行）、**C 段筛选抽屉半边随 J9 落地**（39 行）、**A 段 + C 段「名称」表头工具行随 J7 落地**（150 行，见 §3 第五批）、**I/J/J2/J3 随第六批落地**（见 §3 第六批）、**B 段随第七批落地**（见 §3 第七批）、**E 段随第八批落地**（见 §3 第八批）、**L 整体淘汰**（J12 改走官方对话框） |
+| **P6** 迁结构类改动 | TOTP 徽章 / 表头工具行 / 头像卡片 / 验证码页 / 底部标签栏 等 | 🟡 **已落地：J12 + J8 + J17 + J9 + J14 + J7（「选择」半边）+ J10 账户卡片 + J11 二级导航 + J13 头像上传 + 4b/I 段 + J6 行内 TOTP 徽章/B 段 + J16 验证码页/E 段**；其余待做：J15（ng-select 动态部分） |
 | **P7** 拆 L4 + 切线上 | 删 `custom/`、删 CI 注入步骤、独立预览环境验收后切换 | ⬜ |
 
 ---
@@ -56,7 +56,7 @@
 | **J13** | **头像：点自己头像直接换图（真实上传，跨端同步）** | §7.5 (1241–1524) | 284 | **随 J10 的账户卡片落地**：点卡片头像 → 居中裁方 → 128px jpeg → localStorage + `PUT /api/accounts/avatar/image`（后端在 warden-worker，非上游功能） | ✅ `3457e7ccb7` —— 运行时实测 PUT 返回 200、`body.warden-avatar-on` + `--warden-avatar` 生效、localStorage 落地 |
 | **J14** | **移动端选择模式 / 批量操作**（v10 起不自建底部条，复用应用自带） | §8 (1525–1582) | 58 | 与 J7 同处表头；官方 8.0 有 `batchBarService` | ✅ `6528392574` —— 胶囊驱动官方 `SelectionModel`，退出时 `selection.clear()`；官方批量条受 `PM37785` 开关控制而**我们的后端没开**（线上 `/api/config` 的 featureStates 无此项），与 L4 §8 的最终形态一致（不自建底部条） |
 | J15 | 移动端 ng-select 面板躲软键盘（v12，按 `visualViewport` 动态算） | §8.5 (1583–1659) | 77 | 官方 `bit-select`；样式侧已在 **M 段**落地，动态部分待迁 | ⬜ |
-| **J16** | **独立「验证码」页**（复刻 Bitwarden Authenticator 卡片列表） | §9 (1660–1768) | 109 | 新路由 + 官方 totp 组件 | ⬜ |
+| **J16** | **独立「验证码」页**（复刻 Bitwarden Authenticator 卡片列表） | §9 (1660–1768) | 109 | 新路由 + 官方 totp 组件 | ✅ `9599eac4ea` —— 真路由 `vault/totp-page` + `oss-routing` 的 `path:"totp"`，复用 J6 的 `vault-totp-badge`（改 standalone）；底栏第 2 项随之由 `/vault` 改指 `/totp` |
 | **J17** | **窄屏底部标签栏**（密码库/验证码/发送/工具/报告/设置） | §10 (1769–1856) | 88 | 官方无此物，需新组件 | ✅ `cbab779ca1` |
 | J18 | 每秒 tick | §11 (1857–1872) | 16 | 官方组件的 rxjs interval 自带 | ⬜ |
 | J19 | 装饰列表 + 主循环 | §12 (1873–1983) | 111 | **全删** | ⬜ |
@@ -76,7 +76,7 @@
 | A | 塌缩「复选框列」与「站标列」 | 60 | `warden-selecting`（状态类） | 需 JS | ✅ **已落地**（随 J7/J14，`6528392574`）—— 但**只作用于窄屏**（有意差异，见 §3 第五批 ③） |
 | B | 行内 TOTP 徽章 | 30 | `warden-totp-host` | — | ✅ `3b2ef3a163`（改绝对定位, 见 §3 第七批 ③坑 2） |
 | C | 「名称」表头工具行 + 窄屏筛选抽屉 | 157 | 12 种 | 需 J7/J9 | 🟡 **筛选抽屉半边**随 J9 落地（独立「J9 段」39 行）；**「名称」表头工具行的「选择」半边**随 J7 落地（`6528392574`）；**「新增」不再并入该行** —— 改由 I 段让窄屏页头塌成只含「新增」的一条工具行（`3457e7ccb7`，有意差异见 §3 第六批 ②） |
-| E | 独立「验证码」页 | 138 | 17 种 | 需 J16 | ⬜ |
+| E | 独立「验证码」页 | 138 | 17 种 | 需 J16 | ✅ `9599eac4ea` —— 去掉 L4 外层的 `position:fixed;inset:0` 与底色（源码层已是页面而非覆盖层），底部让位交给 H1 的 `padding-bottom:74px`；**不含** `.warden-auth-count`（L4 的 `ensureAuthView()` 从未创建该节点，是死代码） |
 | F | **移动端（≤768px）布局** | 188 | `warden-filter-open` 等 4 种 | 部分需 JS | ✅ **F1/F2/F3/F5 已落地**（F5「隐藏 side-nav」随第六批落地，`3457e7ccb7`）—— 只差 L4 里那三条死代码（刻意不搬，见 F 段注释） |
 | G | 底部标签栏样式 | 81 | `warden-tabbar` 等 | 需 J17 | ✅ **已落地**（随 J17 同批迁入，去注释后与 L4 **逐字节相同**） |
 | **H** | **窄屏留白压缩（全站变紧凑）** | 90 | 仅 H7 一条 | ✅ **可独立搬** | ✅ **已落地** |
@@ -261,6 +261,9 @@ L4 里它也是 `{ route: "/vault", auth: true }` —— 指向 `/vault`，再�
 那层视图是 J16 要迁的东西，尚未落地，所以这里只做导航、暂不点亮选中态
 （`isActive('totp')` 在 `/totp` 出现前恒为 false）。J16 落地后把 `routerLink` 改成 `/totp`，
 选中态自动生效 —— 这与回归套件「遍历 5 个真实路由」（第 6 项不参与选中态断言）是吻合的。
+
+> **后续（第八批 `9599eac4ea`）**：J16 已落地为真路由，上面这条"暂时"已经改掉 ——
+> `routerLink` 现为 `/totp`，选中态与 `aria-current` 由 `isActive('totp')` 自动生效。
 
 #### ④ 文案为什么是硬编码中文（而不是 `| i18n`）
 
@@ -711,6 +714,106 @@ L4 是**一条** fill，宽度 `w`，被 `clip-path` 在中间挖掉 20px；为�
 
 ---
 
+### 第八批已落地：J16 + E 段：独立「验证码」页（fork 提交 `9599eac4ea`）
+
+新增 `apps/web/src/app/vault/totp-page/`（组件 93 行 + 模板 39 行）与
+`oss-routing.module.ts` 里的一条 `path: "totp"`，**复用** J6 那颗行内徽章组件。
+
+#### ① 三处运行期机制 → 源码结构
+
+| 维度 | L4（运行期注入） | 这里 |
+|---|---|---|
+| 呈现 | 往 `body` 注入 `#warden-authview`，再靠 `body.warden-authview-on` 开关一层 `position:fixed; inset:0` 覆盖层 | **真路由**：随 `<router-outlet>` 落进 `bit-layout` 的 `main#main-content`，与其它页面同级 |
+| 取数据 | 自维护的 `index`（§4 里解密 `name`/`username`/`totp`，且**跳过组织条目**） | 官方 `CipherService.cipherViews$()` —— 拿到的是已解密 `CipherView[]`，组织条目天然在内 |
+| 渲染 | 手写 `createElement` + `renderAuthList()` 重入刷新 | `@for` + `computed`，搜索只是改一个 `signal` |
+| 徽章 | 自写 Base32 / HOTP / TOTP 约 150 行 | 复用 J6 的 `vault-totp-badge`（底层官方 `TotpService`，即 Rust SDK 的 `generate_totp`） |
+
+**刻意不搬** `.warden-auth-count`：L4 的 `ensureAuthView()` 从未创建过这个节点
+（只在 CSS 里写了样式），属死代码。
+
+#### ② 一个组件、两处复用：徽章改为 standalone
+
+`VaultTotpBadgeComponent` 原本是 `standalone: false`、由 `vault-items.module.ts` 声明。
+验证码页是**路由级组件**，不挂在任何 NgModule 的 `declarations` 里，于是把它改成
+standalone（并在 `vault-items.module.ts` 里从 `declarations` 移到 `imports`）。
+
+> ⚠️ standalone 之后，模板里的 `| i18n` 不再由宿主模块提供 —— 必须自己
+> `imports: [I18nPipe]`，否则编译期报 **NG8004**。其余绑定（`@if` / `[class.x]` /
+> `[style.width]` / 事件）都是内置的，不用 import。
+
+#### ③ 底栏第 2 项：`/vault` → `/totp`
+
+J17 那批留下的是"暂时指向 `/vault`、不点亮选中态"（见 §3 第三批 ③）。J16 落地后这个
+替代方案到期：`routerLink` 改指 `/totp`，并补 `[attr.aria-current]="isActive('totp') ? 'page' : null"`。
+选中态完全由 `isActive('totp')` 判定 —— **不需要** L4 那个每 2.4s 遍历一次的 `updateTabbar()`。
+
+#### ④ E 段 CSS 的三处取舍
+
+1. **去掉外层定位与底色**：L4 的 `.warden-authview` 是 `position:fixed; inset:0; background:#fff`，
+   因为它是盖在密码库上的覆盖层；源码层它已经是一个正常页面，保留 fixed 会把它从文档流里摘出去
+   （CI 里为此加了一条**负向守卫**：`^\.warden-authview` 必须不命中）。
+2. **底部让位交给 H1 的 `padding-bottom: 74px`**（而不是像 L4 那样给覆盖层自己加 padding）——
+   页面已经是 `main#main-content` 的子节点，H1 就是页面第一个元素。
+3. **宽度约束落在宿主上**：`vault-totp-badge.warden-auth-badge { flex: 0 0 auto }` +
+   `… .warden-totp-code { min-width: 96px }`。L4 把 `.warden-auth-badge` 加在 `.warden-totp-code`
+   自身（那时徽章就是这个元素），而源码层外面多了一层宿主元素
+   —— 只写一条 `.warden-auth-badge { flex; min-width }` 会**够不到内层**（踩过一次：
+   flex 生效了，但 `min-width` 被 `.warden-totp-code` 的 84px 盖过，徽章比 L4 窄 12px）。
+
+深色分支照旧跟随 `prefers-color-scheme`（跟系统，不跟应用内主题），与 B 段的做法一致。
+
+#### ⑤ 验证
+
+**运行时**（`.deploycheck/verify-batch8.mjs`，dev server + 真实后端，**40/40 通过**）：
+
+- **每行渲染的是它自己的码**：播种两条密钥不同的条目（RFC 4226 附录 D 的
+  `JBSWY3DPEHPK3PXP` 与 RFC 6238 附录 B 的 `GEZDGNBV…`），脚本按 RFC 6238 独立算出期望值
+  逐行比对 —— "两行码不同且各自都对"才能证明是**按行绑定**，而不是把同一个值刷给所有行。
+- **同一集合的第三方互证**：以密码库表格里挂了 `vault-totp-badge` 的行为基准，
+  要求 `/totp` 的条目集合与之**严格相等**；不带验证码的对照条目（「Plain Control」）
+  在数据层就被排除（`document.body.innerText` 里都不出现）。
+- **不是那层 fixed 覆盖层**：徽章仍是 `position: relative`、`transform: none`、
+  且不属于 `td.warden-totp-host`（B 段规则的完整选择器作用域）。
+- **它是个真页面**：底栏在桌面端被 G 段藏起来（`display:none`）；窄屏 6 项可见，
+  从底栏点进去能到 `/totp` 并点亮选中态 + `aria-current="page"`，同时「密码库」项**不**亮
+  （验证 `isActive` 的前缀匹配没误伤）；列表底部不被 fixed 底栏遮挡（卡片底 345.59 ≤ 底栏顶 749）。
+- **两条腿互证**：`/vault` 列表行与 `/totp` 页对同一条目算出的码一致。
+- **搜索/复制**：按名称与用户名都能过滤；空结果是「没有匹配的条目」（而不是「还没有…」）；
+  点一下写入剪贴板的正是这一行显示的 6 位数字（拦 `document.execCommand` 取实参核对）。
+
+**CI 断言升级为 16 组**：组 15（J16 的 11 个 `warden-auth-*` JS 字面量 + `"/totp"`）、
+组 16（E 段标记 + 9 条选择器 + **1 条负向守卫** `^\.warden-authview` 必须不命中）。
+区分度经三向探针核过：官方基线**全 MISS**、上一批产物只命中第七批那几组。
+
+> ⚠️ **不要**拿「验证码」/「搜索条目」这些中文串做 CI 判据 —— 它们从第七批起就已经在
+> 底栏里出现过，按它们断言等于分不出第八批到底落没落。
+
+#### ⑥ 🔴 本轮踩的两个坑（都是"判据本身错了"，不是源码错了）
+
+**坑 1：`storageState()` 复制不了登录态 ⇒ 11 条窄屏断言全数误判。**
+原写法是"桌面 context 登录一次，把 `storageState()` 交给窄屏 context"。实测窄屏 context
+打开就是 `#/login` —— 因为 web-vault 的 token 存在 **sessionStorage**
+（`<userId>_token_accessToken` / `_token_refreshToken` / `_crypto_localUserData` …），
+而 Playwright 的 `storageState()` **只覆盖 cookies + localStorage**（`IndexedDB` 是空的，
+`document.cookie` 也是空的）。dump 三类存储才确认。改法：窄屏一节**不再另开 context**，
+而是 `page.setViewportSize({width:375})` 复用同一个已登录的 page —— 这一节的判据全在
+CSS / 路由层（底栏显隐由 G 段媒体查询决定，与 UA 无关），语义等价，还顺带把"同一会话内
+/vault → /totp 往返"也证了。
+
+> 顺带修正 `b8-lib.mjs` 里一条**错误注释**：原先写着"缓存会话可避免重复登录被限流"，
+> 实际 `savedState()` 从来不生效（每次都是真登录）。限流的正解是"一个脚本只登录一次、
+> 场景复用同一个 page"，不是换 context。
+
+**坑 2：`left === "auto"` 是个无效的代理判据。**
+想用"相对定位的元素 `left` 应为 `auto`"来证明 B 段那条绝对定位规则没漏过来。实测
+Chrome 在相对定位元素上把 `left` 报成 **used value（`0px`）**；逐条扫全部样式表确认
+**没有任何规则**该元素声明过 `left`。也就是说这条断言必然失败，与被测源码无关。
+改法：换成真正有区分度的两个判据 —— 是否落在 `td.warden-totp-host` 里（规则的作用域）
++ `transform === "none"`（那条规则同时带 `translateY(-50%)`）。
+
+> 测试库提示：验证库里有一条早期遗留的、与本批种子无关的条目「TOTP Test」（带验证码）。
+> 因此"恰 N 条"这类硬编码计数断言是脆的，本批已改为与徽章列**集合相等**。
+
 ## 4. 移动端专项（你特别强调的部分）
 
 `custom.css` 里 `@media` 共 **17 处，全部是 `max-width: 768px`**（另有 3 处 `prefers-color-scheme: dark` 深色模式）。
@@ -742,11 +845,11 @@ L4 是**一条** fill，宽度 `w`，被 `clip-path` 在中间挖掉 20px；为�
 | ~~4a~~ | ~~**J7「选择」半边 + J14 选择模式 + A 段**~~ | 模板 | 中 | — | ✅ `6528392574`（见 §3 第五批） |
 | ~~4b~~ | ~~J7「新增」半边 + **I 段**：把 `vault-new-cipher-menu` 搬进表格行 + 藏掉窄屏重复页头~~ | 模板+CSS | 中 | **J10/J11** | ✅ `3457e7ccb7` —— 「新增」改以**不同方式**落地：页头塌成只含「新增」的紧凑工具行，不做 DOM 搬运（见 §3 第六批 ②） |
 | ~~5b~~ | ~~F 段其余：**「隐藏 side-nav」**~~ | CSS | 中 | J17 + 4b | ✅ `3457e7ccb7`（F5 段） |
-| 6 | J6 + B 段：TOTP 徽章（换官方 `totp-countdown` + 改视觉形态） | 组件 | 中 | 官方组件已存在 | ⬜ |
+| ~~6~~ | ~~J6 + B 段：TOTP 徽章（换官方 `totp-countdown` + 改视觉形态）~~ | 组件 | 中 | 官方组件已存在 | ✅ `3b2ef3a163`（见 §3 第七批） |
 | ~~7~~ | ~~J12：行内菜单「文件夹」~~ | 模板 | 低 | — | ✅ `8d4292dee2`（L 段 CSS 一并淘汰） |
 | ~~8~~ | ~~J11 + J10 + I/J/J2/J3 段：二级导航 + 账户卡片~~ | 组件 | 中 | — | ✅ `3457e7ccb7`（见 §3 第六批） |
 | ~~9~~ | ~~J13：头像上传~~ | 组件 | 中 | 后端已就绪 | ✅ `3457e7ccb7`（随 J10 的账户卡片落地） |
-| 10 | J16 + E 段：独立「验证码」页 | 路由+组件 | 中 | — | ⬜（落地后把底栏第 2 项的 `routerLink` 由 `/vault` 改为 `/totp`） |
+| ~~10~~ | ~~J16 + E 段：独立「验证码」页~~ | 路由+组件 | 中 | — | ✅ `9599eac4ea`（见 §3 第八批；底栏第 2 项已由 `/vault` 改为 `/totp`） |
 | 12 | J1–J5 + J18–J19：删除绕路代码 | 清理 | 低 | 前置全部完成 | ⬜ |
 | 13 | **P7**：删 `custom/` + 切线上 | — | **高** | 需独立预览环境 | ⬜ |
 

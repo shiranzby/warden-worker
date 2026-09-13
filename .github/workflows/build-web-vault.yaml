@@ -388,8 +388,53 @@ jobs:
             fail=1
           fi
 
+          # 15) 第八批: J16 独立「验证码」页
+          #     ← apps/web/src/app/vault/totp-page/totp-page.component.{ts,html}
+          #           + oss-routing.module.ts 的 `path: "totp"` 路由
+          #           + layouts/mobile-tab-bar.component.html 第 2 项改指 /totp
+          #     与 L4(custom.js §9)的差别同样是"消掉运行期机制":
+          #       · 呈现: custom.js 往 body 注入 #warden-authview + body.warden-authview-on
+          #         开关的 fixed 覆盖层 → 真路由, 随 <router-outlet> 落进 main#main-content
+          #       · 取数据: 自维护的 index(§4 解密 name/username/totp, 跳过组织条目)
+          #         → 官方 CipherService.cipherViews$(), 组织条目也在其中
+          #       · 渲染: 手写 createElement + 手工 renderAuthList() 重入 → @for + computed
+          #     断言 11 个类名字面量(静态 class, 不参与标识符混淆), 实测官方基线**都不含**
+          #     (探针 .deploycheck/probe-batch8-assert.mjs 逐条核过)。
+          #     ⚠️ 不要断言 "验证码" / 搜索框 placeholder 这些中文串: 它们同样在 tabbar 里
+          #        已经出现过(第七批 J17), 按它们断言等于分不出这一批到底落没落。
+          for lit in app-totp-page warden-auth-title warden-auth-search warden-auth-list \
+                     warden-auth-card warden-auth-row warden-auth-meta warden-auth-name \
+                     warden-auth-user warden-auth-badge warden-auth-empty; do
+            grep -qF "${lit}" .main.js \
+              || { echo "❌ 产物里找不到第八批的标记 '${lit}'" >&2; fail=1; }
+          done
+          #    底栏第 2 项必须真的指到 /totp —— 第七批之前它暂指 /vault(那层视图还不存在)。
+          #    编译后的模板里 `routerLink="/totp"` 落成字符串字面量 "/totp", 官方基线不含。
+          grep -qF '"/totp"' .main.js \
+            || { echo "❌ 产物里找不到底栏指向 /totp 的 routerLink, 验证码页没有入口" >&2; fail=1; }
+          echo "warden-auth-title 总出现次数: $(grep -o 'warden-auth-title' .main.js | wc -l)  (官方基线为 0)"
+
+          # 16) 第八批的样式  ← apps/web/src/css/vaultwarden.css(E 段)
+          grep -qF 'E 段. 独立「验证码」页' .vw.css \
+            || { echo "❌ css/vaultwarden.css 里找不到第八批的 E 段标记" >&2; fail=1; }
+          for sel in '.warden-auth-title' '.warden-auth-search' '.warden-auth-card' \
+                     '.warden-auth-row' '.warden-auth-meta' '.warden-auth-name' \
+                     '.warden-auth-user' '.warden-auth-empty' \
+                     'vault-totp-badge.warden-auth-badge'; do
+            grep -qF "${sel}" .vw.css \
+              || { echo "❌ E 段里找不到 '${sel}'" >&2; fail=1; }
+          done
+          #    ★ 负向守卫: E 段不能再出现 L4 那层 fixed 覆盖层的外壳(.warden-authview)。
+          #      源码层它是**真路由**, 已经落进 main#main-content —— 留一条
+          #      `position:fixed; inset:0` 的规则会二次铺满整屏, 并且盖住 G 段的底部标签栏
+          #      (L4 当年靠 `bottom:62px` 给它让位, 那正是这套叠加写法的代价)。
+          if grep -qE '^\.warden-authview' .vw.css; then
+            echo "❌ E 段又写回了 .warden-authview 覆盖层: 真路由会被二次铺满并盖住底栏" >&2
+            fail=1
+          fi
+
           [ "${fail}" -eq 0 ] || exit 1
-          echo "✅ 十四项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11 + 第七批 J6/B段)均已在实际产物中得到验证"
+          echo "✅ 十六项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11 + 第七批 J6/B段 + 第八批 J16/E段)均已在实际产物中得到验证"
 
       - name: Disk space after
         if: always()
