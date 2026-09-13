@@ -302,8 +302,50 @@ jobs:
             fail=1
           fi
 
+          # 11) 第六批: 4b + I 段 + J10(账户卡片) + J11(二级导航 chips)
+          #     ← layouts/mobile-sub-nav.component.{ts,html} + layouts/account-card.component.{ts,html}
+          #     这一批把 L4 的三套运行期机制搬成了**源码组件**:
+          #       J11: custom.js §7.3 注入 <nav id=warden-subnav> + location.hash 跳转 + 手工高亮
+          #       J10: custom.js §7.2 注入 #warden-acctcard(头像上传靠劫持 window.fetch 偷 token)
+          #     断言 10 个类名/字符串字面量, 实测官方基线**都不含**
+          #     (探针 .deploycheck/probe-batch6-assert.mjs: 21/21 有区分度)。
+          #     ⚠️ 不要断言 lock/logout 的 data-act 值: 太通用, 官方别的组件也有。
+          for lit in app-mobile-sub-nav app-account-card warden-subnav-on warden-acct-avatar \
+                     warden-acct-file warden-acct-acts warden-acct-danger \
+                     /api/accounts/avatar warden.avatar.v1.; do
+            grep -qF "${lit}" .main.js \
+              || { echo "❌ 产物里找不到第六批的标记 '${lit}'" >&2; fail=1; }
+          done
+          echo "warden-acct-avatar 总出现次数: $(grep -o 'warden-acct-avatar' .main.js | wc -l)  (官方基线为 0)"
+
+          # 12) 第六批的样式  ← apps/web/src/css/vaultwarden.css(F5 / I / J / J2 / J3 / J10 段)
+          #     结构: [F5](侧栏隐藏) [I](窄屏页头只留「新增」) [J](chips) [J2](压掉大标题行)
+          #           [J3](收掉官方头像行) [J10](账户卡片) —— 除 J3 与 J10 外都在窄屏媒体查询里。
+          for seg in "F5. 窄屏: 隐藏原生侧边导航" "I 段. 窄屏: 收掉重复的密码库页头" \
+                     "J 段. 窄屏「二级导航」chips" "J10. 设置页顶部的账户卡片"; do
+            grep -qF "${seg}" .vw.css \
+              || { echo "❌ css/vaultwarden.css 里找不到第六批的段标记 '${seg}'" >&2; fail=1; }
+          done
+          for sel in '.warden-acctcard' '.warden-acct-file' '.warden-subnav a.warden-subnav-on' \
+                     'main#main-content:has(#warden-acctcard)'; do
+            grep -qF "${sel}" .vw.css \
+              || { echo "❌ 第六批的样式里找不到 '${sel}'" >&2; fail=1; }
+          done
+          #    ★ 两条负向守卫 —— 都是"藏东西"的规则, 一旦漏到顶层就是桌面端功能缺失:
+          #      · F5 的侧栏隐藏漏到顶层 ⇒ 桌面端没有侧边导航(唯一的一级导航入口没了)
+          #      · I 段的页头头像隐藏漏到顶层 ⇒ 桌面端没有账户入口(设置页卡片只在 /settings)
+          #      在本文件里"写在 @media 内"表现为规则行有两格缩进, 顶格 = 全局。
+          if grep -qE '^app-side-nav,' .vw.css; then
+            echo "❌ F5 的侧栏隐藏成了全局规则: 桌面端会丢掉唯一的侧边导航" >&2
+            fail=1
+          fi
+          if grep -qE '^main#main-content app-account-menu' .vw.css; then
+            echo "❌ I 段的页头头像隐藏成了全局规则: 桌面端会丢掉唯一的账户入口" >&2
+            fail=1
+          fi
+
           [ "${fail}" -eq 0 ] || exit 1
-          echo "✅ 十项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段)均已在实际产物中得到验证"
+          echo "✅ 十二项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11)均已在实际产物中得到验证"
 
       - name: Disk space after
         if: always()
