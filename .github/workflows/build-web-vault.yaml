@@ -268,8 +268,42 @@ jobs:
           grep -q '\.warden-filter-collapsed' .vw.css \
             || { echo "❌ J9 段里找不到收起规则(.warden-filter-collapsed)" >&2; fail=1; }
 
+          # 9) J7 / J14 / A 段  ← vault-items.component.{ts,html} + css/vaultwarden.css
+          #    窄屏「选择」胶囊 + 复选框列塌缩/放出。L4 是运行期做的(custom.js 往「名称」th
+          #    里 appendChild 一个 #warden-headbar, 再切 body 上的 .warden-selecting);
+          #    源码层改成模板内的 .warden-headbar + <bit-table> 上的 [class.*] 绑定,
+          #    状态由组件自己的 signal 持有(toggleSelecting → selection.clear())。
+          #
+          #    断言 6 个**类名字面量**(静态 class / [class.x] 绑定的键名, 都不参与标识符
+          #    混淆), 实测官方基线**都不含** —— 探针 .deploycheck/probe-j7-assert.mjs 逐条核过。
+          #    ⚠️ 不要断言 i18n 的 select/cancel: 官方本来就有, 等于"没迁也能过"。
+          for lit in warden-headbar warden-select-toggle warden-select-on \
+                     warden-name-th warden-selectable warden-selecting; do
+            grep -qF "${lit}" .main.js \
+              || { echo "❌ 产物里找不到 J7/J14 的标记 '${lit}'" >&2; fail=1; }
+          done
+          echo "warden-select-toggle 总出现次数: $(grep -o 'warden-select-toggle' .main.js | wc -l)  (官方基线为 0)"
+
+          # 10) J7/J14/A 段的样式  ← apps/web/src/css/vaultwarden.css
+          grep -q 'J7 / J14 / A' .vw.css \
+            || { echo "❌ css/vaultwarden.css 里找不到 J7/J14/A 段标记" >&2; fail=1; }
+          grep -q '\.warden-headbar' .vw.css \
+            || { echo "❌ J7 段里找不到 .warden-headbar" >&2; fail=1; }
+          grep -q '\.warden-select-toggle' .vw.css \
+            || { echo "❌ J7 段里找不到 .warden-select-toggle" >&2; fail=1; }
+          grep -q '\.warden-selectable' .vw.css \
+            || { echo "❌ J7 段里找不到 .warden-selectable" >&2; fail=1; }
+          #    ★ 决策 B 的负向守卫: A 段的塌缩**必须**写在 @media (max-width:768px) 里
+          #      (在这个文件里表现为规则行有两格缩进), 不能是顶格的全局规则。
+          #      顶格 = 桌面端复选框列也被塌成 0 宽, 而按决策 B 桌面端不显示「选择」胶囊,
+          #      于是桌面端会彻底失去批量选择入口 —— 这正是一开始要修的那个泄漏。
+          if grep -qE '^\.warden-selectable' .vw.css; then
+            echo "❌ A 段塌缩成了全局规则: 桌面端复选框列会被塌成 0, 而桌面端没有胶囊可用" >&2
+            fail=1
+          fi
+
           [ "${fail}" -eq 0 ] || exit 1
-          echo "✅ 八项源码级定制(F/G/J8/J9/J12/J17 + 视口 + 主密码长度)均已在实际产物中得到验证"
+          echo "✅ 十项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段)均已在实际产物中得到验证"
 
       - name: Disk space after
         if: always()
