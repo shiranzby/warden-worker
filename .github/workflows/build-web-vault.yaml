@@ -1,0 +1,112 @@
+name: Build Web Vault (patched)
+
+# 从源码构建"我们自己的"前端产物。与部署解耦 —— 只在改了 webvault/ 时才跑一次。
+# 设计/迁移方案: docs/webvault-source-migration.md
+# 构建配方对齐 dani-garcia/bw_web_builds 的 Dockerfile(node:24 + npm ci + dist:oss:selfhost)
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "vaultwarden/vw_web_builds 的分支/标签 (如 v2026.6.4)"
+        required: true
+        default: "v2026.6.4"
+      apply_patches:
+        description: "应用 webvault/patches (关掉 = 做基线, 用于和官方产物对比)"
+        type: boolean
+        default: true
+
+env:
+  VAULT_REPO: "https://github.com/vaultwarden/vw_web_builds.git"
+  VAULT_FOLDER: "bw_clients"
+
+jobs:
+  build:
+    name: Build web vault from source
+    runs-on: ubuntu-latest
+    # 首次约 20-35 分钟(装整个 monorepo + Angular 生产构建), 给足余量
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout our repo (need webvault/patches)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: "24"
+
+      - name: Disk space before
+        run: df -h / /home/runner
+
+      - name: Clone pre-patched Bitwarden client (vaultwarden/vw_web_builds)
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "${{ inputs.version }}" "${VAULT_REPO}" "${VAULT_FOLDER}"
+          echo "commit : $(git -C "${VAULT_FOLDER}" rev-parse HEAD)"
+          echo "version: $(git -C "${VAULT_FOLDER}" describe --tags --always 2>/dev/null || echo "${{ inputs.version }}")"
+
+      - name: Apply our patches
+        if: ${{ inputs.apply_patches }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          pats=(webvault/patches/*.patch)
+          if [ ${#pats[@]} -eq 0 ]; then
+            echo "ℹ️ webvault/patches/ 为空 —— 基线构建(不含我们的改动)"
+            exit 0
+          fi
+          for p in "${pats[@]}"; do
+            echo "── 应用 ${p}"
+            git -C "${VAULT_FOLDER}" apply -3 -v "${PWD}/${p}"
+          done
+          echo "✅ 已应用 ${#pats[@]} 个补丁"
+          echo "── 改动文件 ──"
+          git -C "${VAULT_FOLDER}" status --short
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          cd "${VAULT_FOLDER}"
+          npm ci --no-audit --no-fund
+
+      - name: Build web vault (oss, selfhost)
+        run: |
+          set -euo pipefail
+          cd "${VAULT_FOLDER}/apps/web"
+          npm run dist:oss:selfhost
+          echo "── 产物 ──"
+          ls -la build | head -20
+
+      - name: "Package (structure must match bw_web_builds: web-vault/ at top level)"
+        run: |
+          set -euo pipefail
+          cd "${VAULT_FOLDER}/apps/web"
+          mv build web-vault
+          tar -czvf "${GITHUB_WORKSPACE}/bw_web_vault.tar.gz" web-vault --owner=0 --group=0
+          cd "${GITHUB_WORKSPACE}"
+          echo "=== sha256 ==="
+          sha256sum bw_web_vault.tar.gz
+          echo "=== 大小 ==="
+          du -h bw_web_vault.tar.gz
+          echo "=== 顶层结构(应与官方一致: web-vault/) ==="
+          tar -tzf bw_web_vault.tar.gz | head -12
+          echo "=== 文件数 ==="
+          tar -tzf bw_web_vault.tar.gz | wc -l
+          echo "=== index.html 的 viewport(基线应仍是 width=1010) ==="
+          tar -xzOf bw_web_vault.tar.gz web-vault/index.html 2>/dev/null | grep -o '<meta name="viewport"[^>]*>' || echo "(未找到)"
+          echo "=== 是否自带 source map(我们本地读源码靠它) ==="
+          tar -tzf bw_web_vault.tar.gz | grep -c '\.map$' || true
+
+      - name: Disk space after
+        if: always()
+        run: df -h / /home/runner
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: bw_web_vault-${{ inputs.version }}
+          path: bw_web_vault.tar.gz
+          retention-days: 14
