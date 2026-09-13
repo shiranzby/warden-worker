@@ -88,15 +88,19 @@ jobs:
           #
           # 注: 不发 Release 而是走 artifact —— 本仓库(一个 fork)的 Releases API 在 GitHub 侧
           # 一直返回 HTTP 500(POST /releases、PATCH /repos 都是, 换全权限 PAT 也一样)。
-          RUN_ID="$(gh run list --repo "${GITHUB_REPOSITORY}" \
-              --workflow=build-web-vault.yaml --status=success --limit=1 \
-              --json databaseId --jq '.[0].databaseId')"
-          if [ -z "${RUN_ID}" ] || [ "${RUN_ID}" = "null" ]; then
-            echo "❌ 找不到成功的 Build Web Vault 构建。" >&2
+          # 用 artifact 名反查 run, 而不是 gh run list --status=success --limit=1。
+          # 原因: run list 在 GitHub 索引滞后时会返回**上一个**成功的构建 —— 实测曾返回未打补丁的
+          # 基线 run 34747235498(commit ed8f883), 会静默把没打补丁的前端发上线。
+          # artifact 名 == "bw_web_vault-${TAG}" 是确定性的: 取其中最新且未过期的一个, 再取其 workflow_run.id。
+          ART_JSON="$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=bw_web_vault-${TAG}&per_page=100")"
+          RUN_ID="$(printf '%s' "${ART_JSON}" \
+            | jq -r '(.artifacts // []) | map(select(.expired == false)) | sort_by(.created_at) | reverse | (.[0].workflow_run.id // empty)')"
+          if [ -z "${RUN_ID}" ]; then
+            echo "❌ 找不到未过期的 artifact 'bw_web_vault-${TAG}'。" >&2
             echo "   先跑: Actions → 'Build Web Vault (patched)' → Run workflow (version=${TAG})" >&2
             exit 1
           fi
-          echo "使用构建 run: ${RUN_ID}"
+          echo "使用构建 run: ${RUN_ID} (由 artifact 名 bw_web_vault-${TAG} 反查)"
 
           gh run download "${RUN_ID}" --repo "${GITHUB_REPOSITORY}" \
             --name "bw_web_vault-${TAG}" --dir .frontend
@@ -116,6 +120,41 @@ jobs:
 
           echo "✅ Frontend files extracted to ./public/web-vault"
           ls -la public/web-vault/ | head -20
+
+      # 硬校验: 确保 public/web-vault 真的是"打了补丁的我们自己构建的产物"。
+      # 这是选构建脆弱性(gh run list 索引滞后)之外的第二道保险 —— 一旦拿到官方包或旧基线包,
+      # 这里会立刻失败, 而不是把没打补丁的前端静默发上线。
+      - name: Verify frontend is our patched build (fail hard)
+        run: |
+          set -euo pipefail
+          IDX="public/web-vault/index.html"
+          [ -f "${IDX}" ] || { echo "❌ 缺少 ${IDX}" >&2; exit 1; }
+
+          # 1) 移动端视口补丁 (webvault/patches/02-viewport-mobile.patch)
+          if grep -q 'width=1010' "${IDX}"; then
+            echo "❌ index.html 仍是 width=1010 —— 视口补丁未生效, 拿到的不是打了补丁的产物。" >&2
+            exit 1
+          fi
+          grep -q 'width=device-width' "${IDX}" || {
+            echo "❌ index.html 找不到 width=device-width。" >&2; exit 1; }
+
+          # 2) 主密码最小长度补丁 (webvault/patches/01-minimum-password-length.patch)
+          #    注意: 源码里另有一个 originalMinimumPasswordLength=8(大写 M), 这里查的是小写 m 的
+          #    minimumPasswordLength, 不会被它误判为"已打补丁"。
+          MAIN="$(find public/web-vault/app -maxdepth 1 -name 'main.*.js' | head -n1)"
+          [ -n "${MAIN}" ] || { echo "❌ 找不到 public/web-vault/app/main.*.js" >&2; exit 1; }
+          if grep -q 'minimumPasswordLength=12' "${MAIN}"; then
+            echo "❌ ${MAIN} 里仍是 minimumPasswordLength=12 —— 主密码补丁未生效。" >&2
+            exit 1
+          fi
+          grep -q 'minimumPasswordLength=8' "${MAIN}" || {
+            echo "❌ ${MAIN} 找不到 minimumPasswordLength=8。" >&2; exit 1; }
+
+          # 3) 构建版本标记: 只有我们自己的 build-web-vault.yaml 会生成它, 官方包没有
+          [ -f public/web-vault/vw-version.json ] || {
+            echo "❌ 缺少 web-vault/vw-version.json —— 这不是我们自己的构建产物。" >&2; exit 1; }
+
+          echo "✅ 前端补丁校验通过: viewport=device-width, minimumPasswordLength=8, vw-version.json=$(cat public/web-vault/vw-version.json)"
 
       - name: Apply web vault overrides (vaultwarden.css)
         run: |
