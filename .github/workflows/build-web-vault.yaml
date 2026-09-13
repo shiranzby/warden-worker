@@ -176,6 +176,10 @@ jobs:
           if tar -xzOf bw_web_vault.tar.gz web-vault/css/vaultwarden.css > .vw.css 2>/dev/null; then
             grep -q '\.vw-hide' .vw.css \
               || { echo "❌ css/vaultwarden.css 内容不对(找不到 .vw-hide)" >&2; fail=1; }
+            # 移动端适配段(H 留白压缩 / K 对话框压缩 / M 下拉加固)也必须在里面 ——
+            # 它们是 2026-09-13 从 L4(custom/custom.css) 迁进 fork 源码的。
+            grep -q 'shypwd mobile adaptation' .vw.css \
+              || { echo "❌ css/vaultwarden.css 里找不到移动端适配段(H/K/M)" >&2; fail=1; }
             echo "✅ css/vaultwarden.css 由构建自带 ($(wc -c < .vw.css) bytes)"
           else
             echo "❌ 产物缺少 css/vaultwarden.css —— copy-webpack-plugin 的复制规则没生效" >&2; fail=1
