@@ -4,7 +4,8 @@ name: Build Web Vault (patched)
 # 设计/迁移方案: docs/webvault-source-migration.md
 # 构建配方对齐 dani-garcia/bw_web_builds 的 Dockerfile(node:24 + npm ci + dist:oss:selfhost)
 permissions:
-  contents: read
+  # write: 用于把产物发布成 Release 资产(部署工作流需要一个免鉴权的稳定下载地址)
+  contents: write
 
 on:
   workflow_dispatch:
@@ -40,6 +41,17 @@ jobs:
 
       - name: Disk space before
         run: df -h / /home/runner
+
+      - name: Compute version variables
+        run: |
+          set -euo pipefail
+          V="${{ inputs.version }}"
+          {
+            echo "VERSION_NO_V=${V#v}"        # v2026.6.4 -> 2026.6.4 (vw-version.json 用)
+            echo "RELEASE_TAG=webvault-${V}"  # 滚动预发布 tag: 每次构建覆盖同一 tag 的资产
+            echo "ASSET_NAME=bw_web_${V}.tar.gz"
+          } >> "$GITHUB_ENV"
+          echo "版本变量: VERSION_NO_V=${V#v} RELEASE_TAG=webvault-${V} ASSET_NAME=bw_web_${V}.tar.gz"
 
       - name: Clone pre-patched Bitwarden client (vaultwarden/vw_web_builds)
         run: |
@@ -77,8 +89,17 @@ jobs:
           set -euo pipefail
           cd "${VAULT_FOLDER}/apps/web"
           npm run dist:oss:selfhost
+
+          # vw-version.json —— 官方 bw_web_builds 的 build_web_vault.sh 也会生成它。
+          # 注意它记的不是 Bitwarden 版本, 而是"构建仓库自己的 tag": 官方 v2026.6.4 的产物里
+          # 内容是 {"version":"2026.6.4"}。上游用 `git ls-remote` 取"远端最新 tag", 我们版本是钉死的,
+          # 所以等价于"我们钉的 tag 去掉前导 v"。必须生成 —— 否则产物比官方少一个文件。
+          printf '{"version":"%s"}' "${VERSION_NO_V}" > build/vw-version.json
+          echo "vw-version.json: $(cat build/vw-version.json)"
+
           echo "── 产物 ──"
-          ls -la build | head -20 || true
+          ls -la build > .build-listing.txt || true
+          head -20 .build-listing.txt
 
       - name: "Package (structure must match bw_web_builds: web-vault/ at top level)"
         run: |
@@ -103,13 +124,71 @@ jobs:
           wc -l < .vault-contents.txt
           echo "=== 自带 source map 数(本地读源码靠它) ==="
           grep -c '\.map$' .vault-contents.txt || true
-          echo "=== index.html 的 viewport(基线应仍是 width=1010) ==="
+          echo "=== vw-version.json(应与官方一致: {\"version\":\"${VERSION_NO_V}\"}) ==="
+          tar -xzOf bw_web_vault.tar.gz web-vault/vw-version.json || echo "❌ 缺少 vw-version.json"
+
+      # 断言"补丁真的改变了产物"。补丁打不上去时 git apply 会直接报错退出, 但
+      # "打得上去、却没改到实际执行的代码"是静默失败 —— 这步就是防这个。
+      - name: Verify patch effects in the built artifact
+        run: |
+          set -euo pipefail
+
           tar -xzOf bw_web_vault.tar.gz web-vault/index.html > .index.html
-          grep -o '<meta name="viewport"[^>]*>' .index.html || echo "(未找到)"
+          VIEWPORT="$(grep -o '<meta name="viewport"[^>]*>' .index.html || true)"
+          echo "viewport: ${VIEWPORT}"
+
+          # 用落盘的清单再 grep —— 不能写 `tar -tzf ... | grep -m1`, 见上一步注释(pipefail + SIGPIPE)
+          MAIN_JS="$(grep -m1 'app/main\..*\.js$' .vault-contents.txt || true)"
+          if [ -z "${MAIN_JS}" ]; then echo "❌ 清单里找不到 app/main.*.js" >&2; exit 1; fi
+          tar -xzOf bw_web_vault.tar.gz "${MAIN_JS}" > .main.js
+          echo "主密码最小长度常量:"
+          grep -o 'minimumPasswordLength=[0-9]*' .main.js | sort -u
+
+          if [ "${{ inputs.apply_patches }}" != "true" ]; then
+            echo "ℹ️ 基线构建(未打补丁) —— 只输出, 不做断言"
+            exit 0
+          fi
+
+          fail=0
+          case "${VIEWPORT}" in
+            *width=1010*) echo "❌ viewport 仍是 width=1010 —— 02-viewport-mobile.patch 没生效" >&2; fail=1 ;;
+            *width=device-width*) echo "✅ viewport 已自适应" ;;
+            *) echo "❌ viewport 既不是 1010 也不是 device-width, 意外值" >&2; fail=1 ;;
+          esac
+          grep -q 'minimumPasswordLength=12' .main.js \
+            && { echo "❌ 主密码最小长度仍是 12 —— 01-minimum-password-length.patch 没生效" >&2; fail=1; }
+          grep -q 'minimumPasswordLength=8' .main.js \
+            || { echo "❌ 产物里没有 minimumPasswordLength=8" >&2; fail=1; }
+          [ "${fail}" -eq 0 ] || exit 1
+          echo "✅ 两个补丁的效果都已在产物中得到验证"
 
       - name: Disk space after
         if: always()
         run: df -h / /home/runner
+
+      # 部署工作流需要"免鉴权 wget 得到"的地址; Actions artifact 需要 API + token, 不能直接用。
+      # 用滚动预发布 tag: 每次构建覆盖同一 tag 的资产 -> 下载地址稳定, 且不会成为仓库的 "latest release"。
+      - name: Publish tarball as a release asset
+        if: ${{ inputs.apply_patches }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cp bw_web_vault.tar.gz "${ASSET_NAME}"
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/${ASSET_NAME}"
+          NOTES="由 .github/workflows/build-web-vault.yaml 构建的前端产物(含 webvault/patches 的改动)。
+          下载地址(部署工作流用): ${URL}
+          sha256: $(sha256sum bw_web_vault.tar.gz | cut -d' ' -f1)"
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "已存在 release ${RELEASE_TAG} —— 覆盖资产"
+            gh release upload "${RELEASE_TAG}" "${ASSET_NAME}" --clobber
+            gh release edit "${RELEASE_TAG}" --notes "${NOTES}"
+          else
+            echo "创建预发布 release ${RELEASE_TAG}"
+            gh release create "${RELEASE_TAG}" "${ASSET_NAME}" \
+              --title "Web Vault ${RELEASE_TAG}" --notes "${NOTES}" --prerelease
+          fi
+          echo "✅ 资产地址: ${URL}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5

@@ -93,24 +93,105 @@ push-cloudflare.yaml → 下载该资产 → 部署（仍然很快）
 
 ## 4. 分阶段迁移（每步都可验证、可回退）
 
-### Phase 0 — 打通流水线（零行为变化）
+### Phase 0 — 打通流水线（零行为变化）✅ 已完成
+
 - 新增 `build-web-vault.yaml`：clone `v2026.6.4` + **空补丁** → 构建 → 上传 artifact
-- **验证**：产物能构建出来；解包后 `index.html`、`app/main.*.js` 存在；与
-  `dani-garcia` 官方 `v2026.6.4` 产物做**结构对比**（文件清单、关键文件大小在同一量级）
 - **不切线上**。这一步只证明"我们造得出来"。
 - 退出条件：构建成功且产物结构与官方一致。
 
-### Phase 1 — 迁移"本来就该在源码里"的改动（低风险）
-这三件事**现在就在 CI 里用 sed/python 硬替换**，属于路径 (a)，搬进源码后天然更干净：
+**执行结果**：run #3（`34747235498`）成功，构建耗时 **5.2 分钟**。
 
-| 现在 | 迁移后 |
+**退出条件的验证（逐字节，不是"量级相近"）**
+把我们的产物与官方 `dani-garcia` release 的 `bw_web_v2026.6.4.tar.gz` 拆开逐个文件比对：
+
+| 指标 | 我方 | 官方 |
+|---|---|---|
+| tarball 大小 | 36,213,426 B | 36,208,444 B |
+| 解包后文件数 | 278 | 279 |
+| 解包后总字节 | 147,587,090 | 147,585,315 |
+| **大小完全一致的文件** | **271 / 272** 共有文件 | — |
+
+**7 个有差异的文件，全部差异来源已定位到具体字节**：
+
+| 文件 | 差异 | 性质 |
+|---|---|---|
+| `app/main.*.js` (×2 处) | `dropin.js?cache=akgcuk` vs `?cache=2rpsdj`；`messages.json?cache=…` 同 | **构建期随机 cache-buster**（每次构建都不同） |
+| `app/main.*.js` | `//# sourceMappingURL=main.<hash>.js.map` | 上行 token 变化 → 内容 hash 变化 → 文件名 hash 变化（派生） |
+| `connectors/duo-redirect.*.js`、`connectors/webauthn-fallback.*.js` | 同上（token + sourceMappingURL） | 同上 |
+| `index.html`、`duo-redirect-connector.html`、`webauthn-fallback-connector.html` | 只差被引用的 `main/connectors` 文件名 hash | 派生 |
+| `app/vendor.*.js.map` | 仅 `sources` 路径层级：`../../../../../` vs `../../../../` | **构建机绝对路径深度**，纯展示；`mappings` 与 `sourcesContent`（1150 条内嵌源码）**完全相同** |
+| `vw-version.json` | 官方有、我方无 | 见下 |
+
+> `main.js` 长度两边**完全相同**（5,069,569 B），差异 run 只有 4 段：2 处 token + 1 处 sourceMappingURL 文件名。
+> **即：除一个刻意的随机 token 外，零源码差异。**
+
+**`vw-version.json` 的真相**（读上游 `scripts/build_web_vault.sh` 得到）：
+它不是 Bitwarden 版本，而是**构建仓库自己的 tag**：
+```bash
+printf '{"version":"%s"}' "$(git ls-remote --tags --refs --sort='v:refname' \
+  https://github.com/dani-garcia/bw_web_builds.git 'v*' | tail -n1 | grep -Eo '[^\/v]*$')" \
+  | tee -a build/vw-version.json
+```
+- 官方 v2026.6.4 产物里是 `{"version":"2026.6.4"}`，22 字节。
+- 检索确认：**前端 bundle 与源码里都没有任何地方引用 `vw-version.json`**；
+  `src/`（我们的 L2）里也没有 → 目前是个"跟着 tarball 走、没人读"的文件。
+- **但为了"零行为变化"，我们的构建必须照样生成它**：值就是 `<我们的 tag 去掉 v>`，
+  与上游对钉死版本的行为**完全等价**（见 Phase 1 的构建改动）。
+
+### Phase 1 — 迁移"本来就该在源码里"的改动（低风险）🔄 进行中
+
+这两件事**现在就在 CI 里用 sed/python 硬替换**，属于路径 (a)，搬进源码后天然更干净。
+两处真实出处都已定位（用 `.js.map` 里的内嵌源码查的，不是猜的）：
+
+| 现在 | 源码里的真实出处 | 迁移后 |
+|---|---|---|
+| `sed 's/minimumPasswordLength=12/=8/'` 扫 `app/*.js` | `libs/common/src/platform/misc/utils.ts:70`<br>`static readonly minimumPasswordLength = 12;` | 补丁 `01-minimum-password-length.patch` |
+| python 替换 `index.html` 的 `width=1010` 视口 | `apps/web/src/index.html:5`<br>`<meta name="viewport" content="width=1010" />` | 补丁 `02-viewport-mobile.patch` |
+
+**为什么源码改 1 行就等价于现在的全局 sed（不是"差不多"，是等价）**
+`minimumPasswordLength` 全项目只有 4 个引用点，全部经由这个常量：
+`libs/auth/.../input-password.component.ts`（注册/设密码表单）、
+`src/app/admin-console/.../master-password.component.ts`（组织策略编辑器，2 处）、以及常量定义本身。
+sed 是全局替换，改常量同样影响这三处 → 行为完全一致。
+> ⚠️ 同一文件里的 `originalMinimumPasswordLength = 8` 是**另一件事**：只用于**登录**表单
+> （`libs/auth/.../login.component.ts:112`，允许老账号的短密码登录）。sed 也没动它，**我们同样不动**。
+
+**视口那处的坑**：CI 的匹配串是 `<meta name="viewport" content="width=1010"/>`（`/>` 前**无空格**），
+因为 Angular 生产构建会把 HTML 的 `" />` 压成 `"/>`；而**源码里是有空格的** (`content="width=1010" />`)。
+所以在源码里改必须按源码的写法，不能照抄 CI 那个串。
+
+**新增的搬迁内容（本来以为要单独处理，结果发现是构建产物的一部分）**
+`vw-version.json` 由官方 `build_web_vault.sh` 生成，属于"构建步骤"而不是"源码"，
+已搬进我们的 `build-web-vault.yaml`（值 = 我们钉的 tag 去掉 `v`，与上游对钉死版本的行为等价）。
+
+**改动清单**
+
+| 文件 | 变化 |
 |---|---|
-| `sed 's/minimumPasswordLength=12/=8/'` 扫压缩产物 | 改源码里那个常量的真实出处 |
-| python 替换 `index.html` 的 `width=1010` 视口 | 直接改 `apps/web/src/index.html` |
-| 自动生成 `vw-version.json` 之外的品牌/文案 | 按需改源码 |
+| `webvault/patches/01-minimum-password-length.patch` | 新增（`utils.ts` 12→8） |
+| `webvault/patches/02-viewport-mobile.patch` | 新增（`index.html` 视口自适应） |
+| `webvault/sync-source.sh` | 新增：**8 秒 / 54 MB** 稀疏检出上游源码（不是 1.19 GB） |
+| `webvault/README.md` | 重写"怎么加一个改动"流程 |
+| `.github/workflows/build-web-vault.yaml` | 生成 `vw-version.json`；新增**补丁生效断言**；新增发布 Release 资产 |
+| `.gitignore` | 忽略 `.vwsrc/`（本地稀疏检出） |
 
-- **验证**：部署后逐条跑 `tests/mobile-regression.mjs --only=guard`（G1–G7 全绿）
+**验证**
+- 本地：`git apply --check` 两个补丁都能干净应用；实际应用后 `utils.ts:71` 为 `= 8`、
+  `index.html:5` 为 `device-width` 变体，然后还原。
+- CI：构建步骤会**断言产物**（viewport 不再含 `1010`；`main.js` 里有 `minimumPasswordLength=8`
+  且没有 `=12`）—— 防"补丁打得上去但没改到实际执行的代码"这种静默失败。
+- 部署后：逐条跑 `tests/mobile-regression.mjs --only=guard`（G1–G7 全绿）。
+
 - 退出条件：CI 里不再有 `sed`/视口替换步骤。
+
+**切换线上下载源（尚未做）**
+`push-cloudflare.yaml` 现在仍从 `dani-garcia` 下载。切换动作是**一行**：
+```diff
+- wget -q "https://github.com/dani-garcia/bw_web_builds/releases/download/${TAG}/bw_web_${TAG}.tar.gz"
++ wget -q "https://github.com/${GITHUB_REPOSITORY}/releases/download/webvault-${TAG}/bw_web_${TAG}.tar.gz"
+```
+**顺序不能颠倒**：必须等我们自己的 release 资产构建出来、验证过，再改这一行；
+否则部署会去下一个还不存在的地址而失败。回退同样是一行。
 
 ### Phase 2 — 迁移功能层（主体工作量）
 `custom.js` 现在 **1983 行**、`custom.css` **1279 行**，共 13 个功能点。
@@ -155,7 +236,7 @@ push-cloudflare.yaml → 下载该资产 → 部署（仍然很快）
 
 ## 6. 代价与风险（实测数据，不是估算）
 
-> **Phase 0 实跑数据（run #1，`v2026.6.4`）** —— 我原先估"20–35 分钟"，**实测只有 5.5 分钟**：
+> **Phase 0 实跑数据（`v2026.6.4`）** —— 我原先估"20–35 分钟"，**实测只有 5 分钟出头**：
 
 | 步骤 | 实测耗时 |
 |---|---|
@@ -163,7 +244,10 @@ push-cloudflare.yaml → 下载该资产 → 部署（仍然很快）
 | `npm ci`（**2885 个包**） | **1.3 分钟** |
 | `npm run dist:oss:selfhost`（Angular 生产构建） | **3.9 分钟** |
 | 打包 | <0.1 分钟 |
-| **整次构建合计** | **5.5 分钟** |
+| **整次构建合计** | **5.2 分钟**（run #3 实测） |
+
+> 本地改前端**不需要跑这次构建**：`webvault/sync-source.sh` 用稀疏 + 无 blob 检出，
+> 只取要改的路径，**8 秒 / 54 MB**（整份源码是 1.19 GB）。日常改代码 → 生成补丁 → 推 CI，成本很低。
 
 | 项 | 情况 |
 |---|---|
@@ -193,11 +277,16 @@ push-cloudflare.yaml → 下载该资产 → 部署（仍然很快）
 
 ---
 
-## 7. 待确认
+## 7. 待确认 / 状态
 
-1. **Phase 0 是否现在就做**？（只加一个 workflow，构建出产物但不切线上；不影响现有部署）
-2. **补丁的组织方式**：一个特性一个 `.patch`（便于 review 与升级，我推荐）
-   还是全部合并成一个大 `.patch`？
-3. **升级策略**：跟随 `vaultwarden/vw_web_builds` 的版本节奏（他们出新分支我们跟），
-   还是我们长期钉在一个版本、只在需要时才升？
-4. Phase 2 的**迁移顺序**是否认可（先把"移动端下拉"和"表格结构"这两个重灾区做掉）？
+| # | 事项 | 状态 |
+|---|---|---|
+| 1 | **Phase 0 是否做** | ✅ 已完成（run #3 成功，逐字节验证见 §4） |
+| 2 | **补丁的组织方式** | ✅ 已按"**一个特性一个 `.patch`**"落地（`01-` / `02-`） |
+| 3 | **升级策略**：跟 `vaultwarden/vw_web_builds` 的节奏，还是长期钉死一个版本 | ⬜ 待定（当前钉 `v2026.6.4`，与线上一致） |
+| 4 | Phase 2 的**迁移顺序**是否认可（先做"移动端下拉"+"表格结构"两个重灾区） | ⬜ 待确认 |
+| 5 | **是否现在就把线上切到我们自己的产物**（改 `push-cloudflare.yaml` 那一行） | ⬜ 待确认 —— 需先跑通一次带补丁的构建并验证资产 |
+
+> 第 3 条的现实含义：钉死 → 上游修安全问题时我们不会自动拿到；跟随 → 每次升版本要
+> `git apply` 全部补丁、可能人工解冲突（**冲突在编译期暴露，不会静默**）。
+> 折中做法（推荐）：**跟随大版本、但手动触发**，每次升级单独一个 PR，方便回退。

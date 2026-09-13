@@ -1,2 +1,4 @@
 # Shell scripts must keep LF endings so they run on the Linux build/CI image.
 *.sh text eol=lf
+# 补丁由 `git apply` 在 Linux 上应用; 行尾一旦变成 CRLF, 上下文行就对不上而静默失败。
+*.patch text eol=lf

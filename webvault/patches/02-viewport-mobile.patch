@@ -1,0 +1,13 @@
+diff --git a/apps/web/src/index.html b/apps/web/src/index.html
+index 8d98d5c..05b6f49 100644
+--- a/apps/web/src/index.html
++++ b/apps/web/src/index.html
+@@ -2,7 +2,7 @@
+ <html class="theme_light">
+   <head>
+     <meta charset="utf-8" />
+-    <meta name="viewport" content="width=1010" />
++    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+     <meta name="theme-color" content="#175DDC" />
+ 
+     <title page-title>Vaultwarden Web</title>
