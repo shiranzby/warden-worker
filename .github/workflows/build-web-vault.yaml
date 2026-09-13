@@ -4,8 +4,7 @@ name: Build Web Vault (patched)
 # 设计/迁移方案: docs/webvault-source-migration.md
 # 构建配方对齐 dani-garcia/bw_web_builds 的 Dockerfile(node:24 + npm ci + dist:oss:selfhost)
 permissions:
-  # write: 用于把产物发布成 Release 资产(部署工作流需要一个免鉴权的稳定下载地址)
-  contents: write
+  contents: read
 
 on:
   workflow_dispatch:
@@ -46,12 +45,8 @@ jobs:
         run: |
           set -euo pipefail
           V="${{ inputs.version }}"
-          {
-            echo "VERSION_NO_V=${V#v}"        # v2026.6.4 -> 2026.6.4 (vw-version.json 用)
-            echo "RELEASE_TAG=webvault-${V}"  # 滚动预发布 tag: 每次构建覆盖同一 tag 的资产
-            echo "ASSET_NAME=bw_web_${V}.tar.gz"
-          } >> "$GITHUB_ENV"
-          echo "版本变量: VERSION_NO_V=${V#v} RELEASE_TAG=webvault-${V} ASSET_NAME=bw_web_${V}.tar.gz"
+          echo "VERSION_NO_V=${V#v}" >> "$GITHUB_ENV"   # v2026.6.4 -> 2026.6.4 (vw-version.json 用)
+          echo "版本变量: VERSION_NO_V=${V#v}"
 
       - name: Clone pre-patched Bitwarden client (vaultwarden/vw_web_builds)
         run: |
@@ -166,33 +161,16 @@ jobs:
         if: always()
         run: df -h / /home/runner
 
-      # 部署工作流需要"免鉴权 wget 得到"的地址; Actions artifact 需要 API + token, 不能直接用。
-      # 用滚动预发布 tag: 每次构建覆盖同一 tag 的资产 -> 下载地址稳定, 且不会成为仓库的 "latest release"。
-      - name: Publish tarball as a release asset
-        if: ${{ inputs.apply_patches }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          cp bw_web_vault.tar.gz "${ASSET_NAME}"
-          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/${ASSET_NAME}"
-          NOTES="由 .github/workflows/build-web-vault.yaml 构建的前端产物(含 webvault/patches 的改动)。
-          下载地址(部署工作流用): ${URL}
-          sha256: $(sha256sum bw_web_vault.tar.gz | cut -d' ' -f1)"
-          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
-            echo "已存在 release ${RELEASE_TAG} —— 覆盖资产"
-            gh release upload "${RELEASE_TAG}" "${ASSET_NAME}" --clobber
-            gh release edit "${RELEASE_TAG}" --notes "${NOTES}"
-          else
-            echo "创建预发布 release ${RELEASE_TAG}"
-            gh release create "${RELEASE_TAG}" "${ASSET_NAME}" \
-              --title "Web Vault ${RELEASE_TAG}" --notes "${NOTES}" --prerelease
-          fi
-          echo "✅ 资产地址: ${URL}"
-
+      # 产物只以 Actions artifact 形式保存(不建 Release)。
+      # 为什么不发 Release: 本仓库(一个 fork)的 Releases API 在 GitHub 侧是坏的 ——
+      # POST /releases 与 PATCH /repos 一律返回 **HTTP 500 且 body 为空**,
+      # 用 workflow 的 GITHUB_TOKEN 和全权限 PAT 都一样(DELETE tag 却正常返回 204)。
+      # 实测 POST /releases 虽然报 500, 却会真的建出 release 记录 → 留下重复的脏数据。
+      # 所以改走 artifact: 部署工作流用 `gh run download` 取(同仓库, 默认 token 就能读)。
       - name: Upload artifact
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
           name: bw_web_vault-${{ inputs.version }}
           path: bw_web_vault.tar.gz
-          retention-days: 14
+          # 部署侧要靠它, 别按默认 14 天过期; 过期了部署会直接失败(不会静默降级)
+          retention-days: 90

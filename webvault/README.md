@@ -62,7 +62,9 @@ webvault/
    ```
 5. 触发构建：Actions → **Build Web Vault (patched)** → Run workflow → 填版本号。
    构建会自己断言"补丁真的改变了产物"（viewport 不再是 1010、`minimumPasswordLength=8`），
-   并把 tarball 发成 `webvault-<版本>` 这个**滚动预发布 release** 的资产，供部署工作流下载。
+   并把 tarball 上传成 Actions artifact（保留 90 天），供部署工作流用 `gh run download` 取。
+   > 不走 Release 的原因：本仓库（一个 fork）的 Releases API 在 GitHub 侧一直返回 500，见
+   > `docs/webvault-source-migration.md` §4。
 
 ## 读源码（不 clone 全量也能看）
 

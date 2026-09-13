@@ -66,7 +66,7 @@ RUN tar -czvf "bw_web_vault.tar.gz" web-vault --owner=0 --group=0
 ```
 warden-worker/                        ← 现有仓库，体积不变
 ├── .github/workflows/
-│   ├── build-web-vault.yaml          ← 【新增】构建我们自己的前端，产出 Release 资产
+│   ├── build-web-vault.yaml          ← 【新增】构建我们自己的前端，产出 Actions artifact
 │   └── push-cloudflare.yaml          ← 【改】下载地址指向我们自己的资产；删掉注入/替换步骤
 ├── webvault/                         ← 【新增】我们的前端改动
 │   ├── patches/                      ← 按顺序应用的补丁（一个特性一个文件，便于 review 与升级）
@@ -81,8 +81,8 @@ warden-worker/                        ← 现有仓库，体积不变
 改 webvault/patches/ → 触发 build-web-vault.yaml
     → clone vaultwarden/vw_web_builds @ 钉住的版本
     → git apply 我们的补丁
-    → npm ci + npm run dist:oss:selfhost（约 20–35 分钟）
-    → 打包 tar.gz → 发 Release 资产
+    → npm ci + npm run dist:oss:selfhost（实测约 5 分钟）
+    → 打包 tar.gz → 上传 Actions artifact（90 天保留）
 push-cloudflare.yaml → 下载该资产 → 部署（仍然很快）
 ```
 
@@ -172,7 +172,7 @@ sed 是全局替换，改常量同样影响这三处 → 行为完全一致。
 | `webvault/patches/02-viewport-mobile.patch` | 新增（`index.html` 视口自适应） |
 | `webvault/sync-source.sh` | 新增：**8 秒 / 54 MB** 稀疏检出上游源码（不是 1.19 GB） |
 | `webvault/README.md` | 重写"怎么加一个改动"流程 |
-| `.github/workflows/build-web-vault.yaml` | 生成 `vw-version.json`；新增**补丁生效断言**；新增发布 Release 资产 |
+| `.github/workflows/build-web-vault.yaml` | 生成 `vw-version.json`；新增**补丁生效断言**；上传 Actions artifact（保留 90 天） |
 | `.gitignore` | 忽略 `.vwsrc/`（本地稀疏检出） |
 
 **验证**
@@ -184,14 +184,34 @@ sed 是全局替换，改常量同样影响这三处 → 行为完全一致。
 
 - 退出条件：CI 里不再有 `sed`/视口替换步骤。
 
-**切换线上下载源（尚未做）**
-`push-cloudflare.yaml` 现在仍从 `dani-garcia` 下载。切换动作是**一行**：
+**切换线上下载源（已改，走 Actions artifact）**
+
+原计划是"发 Release 资产 + wget"，但**这条路在本仓库走不通**，实测结论：
+
+> 🔴 **本仓库（一个 fork）的 Releases API 在 GitHub 侧是坏的。**
+> `POST /releases`、`DELETE /releases/{id}`、`PATCH /repos/{r}` **一律返回 HTTP 500 且 body 为空**，
+> 用 workflow 的 `GITHUB_TOKEN` 和全权限 PAT **结果一样**（说明不是权限问题）；
+> 而 `DELETE /git/refs/tags/...` 却正常返回 204。
+> 更坑的是 `POST /releases` **报 500 但会真的建出 release 记录** → 留下重复的脏数据
+> （本轮留下 3 条 draft，需手工在 Releases 页删掉）。
+
+所以改成 **Actions artifact**：`build-web-vault.yaml` 用 `actions/upload-artifact`
+（`retention-days: 90`），`push-cloudflare.yaml` 用 `gh run download` 取同仓库的产物。
+`push-cloudflare.yaml` 的 `permissions` 必须显式加 `actions: read` ——
+**一旦声明 `permissions`，未列出的作用域会被置为 `none`**，漏了会 403。
+
 ```diff
 - wget -q "https://github.com/dani-garcia/bw_web_builds/releases/download/${TAG}/bw_web_${TAG}.tar.gz"
-+ wget -q "https://github.com/${GITHUB_REPOSITORY}/releases/download/webvault-${TAG}/bw_web_${TAG}.tar.gz"
+- tar -xzf "bw_web_${TAG}.tar.gz" -C public/
++ RUN_ID="$(gh run list --repo "${GITHUB_REPOSITORY}" --workflow=build-web-vault.yaml \
++            --status=success --limit=1 --json databaseId --jq '.[0].databaseId')"
++ gh run download "${RUN_ID}" --repo "${GITHUB_REPOSITORY}" \
++    --name "bw_web_vault-${TAG}" --dir .frontend
++ tar -xzf ".frontend/bw_web_vault.tar.gz" -C public/
 ```
-**顺序不能颠倒**：必须等我们自己的 release 资产构建出来、验证过，再改这一行；
-否则部署会去下一个还不存在的地址而失败。回退同样是一行。
+
+找不到产物时**直接失败**（不会静默退回官方包 —— 那会悄悄部署成没打补丁的版本）。
+回退是把这段换回 `wget` 一行 + 恢复被删的两个替换步骤。
 
 ### Phase 2 — 迁移功能层（主体工作量）
 `custom.js` 现在 **1983 行**、`custom.css` **1279 行**，共 13 个功能点。
@@ -220,17 +240,20 @@ sed 是全局替换，改常量同样影响这三处 → 行为完全一致。
 ## 5. 迁移完成后 CI 的样子（净变化：变简单）
 
 **删掉的步骤（3 个）**：
-- `Patch web vault master password minimum length`（→ 进源码）
-- `Inject shypwd custom frontend`（→ 进源码）
-- `cp public/css/vaultwarden.css`（按需保留，它本来就是覆盖层）
+- `Patch web vault master password minimum length`（→ 已进源码 `patches/01-`）
+- index.html 里的视口替换（→ 已进源码 `patches/02-`）
+- `Inject shypwd custom frontend`（Phase 3 删；现在仍需注入 `custom.css/js`，L4 还在）
 
-**改动的步骤（1 个）**：下载地址
+第 1、2 项**已删**（Phase 1）；第 3 项要等 Phase 2 迁完 13 个功能点。
+
+**改动的步骤（1 个）**：前端来源
 ```diff
 - wget -q "https://github.com/dani-garcia/bw_web_builds/releases/download/${TAG}/bw_web_${TAG}.tar.gz"
-+ wget -q "${WEBVAULT_TARBALL_URL}"   # 我们自己的 Release 资产
++ gh run download <最新成功的 Build Web Vault run> --name "bw_web_vault-${TAG}"
 ```
+（为什么不是 Release 资产：见 §4 的 Releases API 500 结论。）
 
-**新增的步骤**：保留 `*.map` 删除（Cloudflare 单文件体积限制，与构建方式无关）。
+**保留的步骤**：`*.map` 删除（Cloudflare 单文件体积限制，与构建方式无关）。
 
 ---
 

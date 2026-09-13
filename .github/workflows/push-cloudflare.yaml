@@ -1,6 +1,9 @@
 name: Build
 permissions:
     contents: read
+    # 下载我们自己的前端产物(build-web-vault.yaml 的 Actions artifact)要用。
+    # ⚠️ 一旦声明了 permissions, 没列出的作用域会被置为 none —— 漏了这行 gh run download 会 403。
+    actions: read
 
 on:
   push:
@@ -66,7 +69,9 @@ jobs:
           fi
           cargo install --locked -q worker-build --version "${WORKER_BUILD_VERSION}"
 
-      - name: Download and extract frontend (bw_web_builds)
+      - name: Download and extract frontend (our patched build)
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           TAG="${BW_WEB_VERSION}"
@@ -74,26 +79,40 @@ jobs:
             TAG="$(curl -s https://api.github.com/repos/dani-garcia/bw_web_builds/releases/latest | jq -r .tag_name)"
           fi
 
-          echo "📦 Downloading frontend version: ${TAG}"
+          echo "📦 前端版本: ${TAG}"
 
-          # Download the web vault release
-          wget -q "https://github.com/dani-garcia/bw_web_builds/releases/download/${TAG}/bw_web_${TAG}.tar.gz"
+          # 取"我们自己的"构建产物 —— 由 .github/workflows/build-web-vault.yaml 构建。
+          # 原先这里是从 dani-garcia/bw_web_builds 下官方包, 再用 sed/python 在压缩产物上打补丁;
+          # 现在改动(最小主密码长度 8、移动端视口)已经在源码里打好(webvault/patches),
+          # 所以那两步(case (a) 的运行期补丁)已删除。见 docs/webvault-source-migration.md。
+          #
+          # 注: 不发 Release 而是走 artifact —— 本仓库(一个 fork)的 Releases API 在 GitHub 侧
+          # 一直返回 HTTP 500(POST /releases、PATCH /repos 都是, 换全权限 PAT 也一样)。
+          RUN_ID="$(gh run list --repo "${GITHUB_REPOSITORY}" \
+              --workflow=build-web-vault.yaml --status=success --limit=1 \
+              --json databaseId --jq '.[0].databaseId')"
+          if [ -z "${RUN_ID}" ] || [ "${RUN_ID}" = "null" ]; then
+            echo "❌ 找不到成功的 Build Web Vault 构建。" >&2
+            echo "   先跑: Actions → 'Build Web Vault (patched)' → Run workflow (version=${TAG})" >&2
+            exit 1
+          fi
+          echo "使用构建 run: ${RUN_ID}"
+
+          gh run download "${RUN_ID}" --repo "${GITHUB_REPOSITORY}" \
+            --name "bw_web_vault-${TAG}" --dir .frontend
 
           # Extract to public/web-vault
-          tar -xzf "bw_web_${TAG}.tar.gz" -C public/
+          tar -xzf ".frontend/bw_web_vault.tar.gz" -C public/
 
           # bw_web_builds extracts into a web-vault folder (expected)
           if [ ! -d "public/web-vault" ]; then
-            echo "❌ Expected ./public/web-vault after extracting bw_web_builds" >&2
+            echo "❌ Expected ./public/web-vault after extracting" >&2
             ls -la public/ | head -50 || true
             exit 1
           fi
 
           # Remove large source maps to satisfy Cloudflare static asset per-file limits
           find public/web-vault -type f -name '*.map' -delete
-
-          # Cleanup
-          rm -f "bw_web_${TAG}.tar.gz"
 
           echo "✅ Frontend files extracted to ./public/web-vault"
           ls -la public/web-vault/ | head -20
@@ -102,24 +121,10 @@ jobs:
         run: |
           mkdir -p public/web-vault/css/ && cp public/css/vaultwarden.css public/web-vault/css/
 
-      - name: Patch web vault master password minimum length
-        env:
-          MIN_MASTER_PASSWORD_LENGTH: ${{ vars.MIN_MASTER_PASSWORD_LENGTH || '8' }}
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          count=0
-          for f in public/web-vault/app/*.js; do
-            if grep -q "minimumPasswordLength=12" "$f"; then
-              sed -i "s/minimumPasswordLength=12/minimumPasswordLength=${MIN_MASTER_PASSWORD_LENGTH}/g" "$f"
-              count=$((count+1))
-            fi
-          done
-          echo "Set web vault master password minimum length to ${MIN_MASTER_PASSWORD_LENGTH} (patched ${count} file(s))"
-          if [ "$count" -eq 0 ]; then
-            echo "WARNING: no 'minimumPasswordLength=12' found; web vault may use a different default. Verify manually."
-          fi
-
+      # 原先这里有一个 "Patch web vault master password minimum length" 步骤(sed 在压缩产物上
+      # 把 minimumPasswordLength=12 改成 8)。Phase 1 已把它搬进源码:
+      #   webvault/patches/01-minimum-password-length.patch
+      # 视口替换同理: webvault/patches/02-viewport-mobile.patch(见下面的注入步骤)。
       - name: Inject shypwd custom frontend (TOTP inline + mobile adaptation)
         run: |
           set -euo pipefail
@@ -127,19 +132,12 @@ jobs:
           cp custom/custom.css public/web-vault/custom.css
           cp custom/custom.js   public/web-vault/custom.js
 
-          # 2) 修补 index.html: 视口自适应移动端 + 注入自定义 CSS/JS 引用
+          # 2) 修补 index.html: 注入自定义 CSS/JS 引用
+          #    注意: 视口(width=1010 -> device-width)已不在这一步做, 已搬到源码
+          #    webvault/patches/02-viewport-mobile.patch
           python3 - <<'PY'
           p = "public/web-vault/index.html"
           s = open(p, encoding="utf-8").read()
-
-          # 视口: width=1010 -> 自适应设备宽度(修复手机端被锁死为 1010px)
-          old_vp = '<meta name="viewport" content="width=1010"/>'
-          new_vp = '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>'
-          if old_vp in s:
-              s = s.replace(old_vp, new_vp, 1)
-              print("viewport meta patched for mobile")
-          else:
-              print("WARNING: viewport meta 'width=1010' not found; verify manually")
 
           # 注入自定义 CSS(放在 </head> 前)
           css_tag = '<link rel="stylesheet" href="custom.css"/>'
