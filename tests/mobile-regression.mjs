@@ -169,14 +169,27 @@ if (want("guard")) {
     const page = await ctx.newPage();
     const okG1 = await ensureLoggedIn(page);
     ck(`G1 ${vw}x${vh} 已登录`, okG1 === true, okG1);
-    await go(page, "#/tools/import", 3800);
+    /* ⚠️ 不要"固定 sleep 完就直接数控件": 实测 390x844 抓到过 count=0
+       (而单独跑同一视口 0.75s 就出 3 个) —— 属时序误伤, 不是应用 bug。
+       改成轮询等渲染: 页面**真的**没渲染出来仍会断言失败, 但不再被时序坑。 */
+    await go(page, "#/tools/import", 1500);
+    let n = 0;
+    for (let w = 0; w < 25; w++) {
+      const st = await page.evaluate(() => ({
+        onRoute: location.hash.indexOf("/tools/import") >= 0,
+        n: document.querySelectorAll("main#main-content bit-select").length,
+      }));
+      if (!st.onRoute) { await go(page, "#/tools/import", 300); continue; }  // 路由没落定就重设
+      n = st.n;
+      if (n > 0) break;
+      await sleep(400);
+    }
     /* 现在真实触摸测试**全部 3 个**选择控件 —— v9 只测了第 3 个(索引 2),
        前两个(密码库 / 文件夹)从来没被覆盖过。 */
     await page.evaluate(() => { const e = document.querySelectorAll("main#main-content bit-select ng-select")[2]; if (e) e.scrollIntoView({ block: "center" }); });
     await sleep(700);
     /* 三个控件逐个真实触摸。⚠️ 必须用 touchscreen.tap —— DOM 的 .click() 打不开
        ng-select(它监听 mousedown), 于是会误报"面板打不开"。 */
-    const n = await page.evaluate(() => document.querySelectorAll("main#main-content bit-select").length);
     ck(`G1 ${vw}x${vh} 导入页有 3 个选择控件`, n === 3, n);
     for (let i = 0; i < n; i++) {
       await page.evaluate((k) => { const e = document.querySelectorAll("main#main-content bit-select")[k]; if (e) e.scrollIntoView({ block: "center" }); }, i);
