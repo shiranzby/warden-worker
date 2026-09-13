@@ -19,7 +19,10 @@ on:
         default: true
 
 env:
-  VAULT_REPO: "https://github.com/vaultwarden/vw_web_builds.git"
+  # P1: 改为我们的 fork。fork 的 shypwd 分支与官方 v2026.8.0 是同一个 commit
+  # (a868ea02ea78b4a0eb8656664cf8d29f9fdab8c2), 所以这一步只换"从哪拉代码",
+  # 产物应与官方源逐字节一致 —— 这就是安全阀。
+  VAULT_REPO: "https://github.com/shiranzby/vw_web_builds.git"
   VAULT_FOLDER: "bw_clients"
 
 jobs:
