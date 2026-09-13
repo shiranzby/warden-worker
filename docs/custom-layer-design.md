@@ -1,5 +1,12 @@
 # custom/ 定制层设计方案
 
+> ## ⚠️ 本文所述方案已退役（历史记录，2026-09-14）
+> 这里设计的"重构 `custom/` 定制层"路线**最终没有被采用**。实际走的是另一条路：
+> 把 `custom/` 的每一段（共 3262 行）**整体迁进前端源码 fork** `shiranzby/vw_web_builds@shypwd`，
+> 然后删掉 `custom/` 与 CI 注入步骤（即 P7）。**`custom/` 目录已不存在**，
+> 当前架构与进度见 `docs/webvault-migration-checklist.md`，决策经过见 `docs/webvault-source-migration.md`。
+> 保留本文只为记录当初的取舍与为什么放弃。
+
 > 目的：把 `custom/` 从"一堆互相打架的补丁"变成**边界清楚、失效可预警、可逐个重构**的定制层。
 > 本文只描述**设计与边界**，不含具体实现改动。实现按 §6 的顺序逐个来。
 

@@ -19,9 +19,11 @@ jobs:
       WORKER_BUILD_VERSION: "0.8.5"
       WRANGLER_VERSION: "4.82.1"
       # Web Vault frontend (bw_web_builds) version tag (default pinned; override via GitHub Actions Variables)
-      # - Set repository variable BW_WEB_VERSION (e.g. v2026.6.4) to override
+      # - 默认值必须等于 fork shiranzby/vw_web_builds@shypwd 里 apps/web/package.json 的 version,
+      #   否则 build-web-vault.yaml 的版本闸门不会产出同名 artifact, 部署侧反查必然失败。
+      # - Set repository variable BW_WEB_VERSION to override
       # - Set to "latest" to follow the latest bw_web_builds release
-      BW_WEB_VERSION: ${{ vars.BW_WEB_VERSION || 'v2026.6.4' }}
+      BW_WEB_VERSION: ${{ vars.BW_WEB_VERSION || 'v2026.8.0' }}
 
       # Required for wrangler (Global API Key auth: EMAIL + API_KEY pair)
       CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
@@ -83,8 +85,9 @@ jobs:
 
           # 取"我们自己的"构建产物 —— 由 .github/workflows/build-web-vault.yaml 构建。
           # 原先这里是从 dani-garcia/bw_web_builds 下官方包, 再用 sed/python 在压缩产物上打补丁;
-          # 现在改动(最小主密码长度 8、移动端视口)已经在源码里打好(webvault/patches),
-          # 所以那两步(case (a) 的运行期补丁)已删除。见 docs/webvault-source-migration.md。
+          # 现在全部改动(最小主密码长度 8、移动端视口、以及原 custom/ 那套 3262 行运行期补丁)
+          # 都已在 fork shiranzby/vw_web_builds@shypwd 的**源码**里打好, 产物自带,
+          # 所以那些运行期补丁步骤已全部删除。见 docs/webvault-migration-checklist.md。
           #
           # 注: 不发 Release 而是走 artifact —— 本仓库(一个 fork)的 Releases API 在 GitHub 侧
           # 一直返回 HTTP 500(POST /releases、PATCH /repos 都是, 换全权限 PAT 也一样)。
@@ -167,7 +170,13 @@ jobs:
           grep -q '\.vw-hide' "${CSS}" || {
             echo "❌ ${CSS} 内容不对(找不到 .vw-hide)。" >&2; exit 1; }
 
-          echo "✅ 前端定制校验通过: viewport=device-width, minimumPasswordLength=8, css/vaultwarden.css 由构建自带, vw-version.json=$(cat public/web-vault/vw-version.json)"
+          # 5) P7 负向守卫: L4 注入层已退役, 产物里不应再有任何 custom.css / custom.js 引用。
+          #    这条断言的作用是防止"注入步骤"被重新写回来 —— 旧流程正是这么干的。
+          if grep -qE 'custom\.(css|js)' "${IDX}"; then
+            echo "❌ ${IDX} 仍引用 custom.css/custom.js —— 注入层不应再出现(见 P7)。" >&2; exit 1
+          fi
+
+          echo "✅ 前端定制校验通过: viewport=device-width, minimumPasswordLength=8, css/vaultwarden.css 由构建自带, 无 custom.css/js 注入, vw-version.json=$(cat public/web-vault/vw-version.json)"
 
       # 注: 这里原先有一个 "Apply web vault overrides (vaultwarden.css)" 步骤
       #   (mkdir -p public/web-vault/css/ && cp public/css/vaultwarden.css public/web-vault/css/)。
@@ -178,38 +187,12 @@ jobs:
       # 更早这里还有一个 "Patch web vault master password minimum length"(在压缩产物上 sed)
       # 与视口替换, 两者都已在 Phase 1 搬进源码(现位于 fork 的
       # libs/common/src/platform/misc/utils.ts 与 apps/web/src/index.html)。
-      - name: Inject shypwd custom frontend (TOTP inline + mobile adaptation)
-        run: |
-          set -euo pipefail
-          # 1) 复制自定义 CSS/JS 到 web-vault 根目录(源文件来自仓库 custom/)
-          cp custom/custom.css public/web-vault/custom.css
-          cp custom/custom.js   public/web-vault/custom.js
-
-          # 2) 修补 index.html: 注入自定义 CSS/JS 引用
-          #    注意: 视口(width=1010 -> device-width)已不在这一步做, 现位于 fork 源码的
-          #    apps/web/src/index.html
-          python3 - <<'PY'
-          p = "public/web-vault/index.html"
-          s = open(p, encoding="utf-8").read()
-
-          # 注入自定义 CSS(放在 </head> 前)
-          css_tag = '<link rel="stylesheet" href="custom.css"/>'
-          if css_tag not in s and "</head>" in s:
-              s = s.replace("</head>", css_tag + "</head>", 1)
-              print("custom.css link injected")
-          else:
-              print("WARNING: custom.css link already present or </head> missing")
-
-          # 注入自定义 JS(放在 </body> 前; 脚本内部用 MutationObserver 自适应加载时机)
-          js_tag = '<script src="custom.js"></script>'
-          if js_tag not in s and "</body>" in s:
-              s = s.replace("</body>", js_tag + "</body>", 1)
-              print("custom.js script injected")
-          else:
-              print("WARNING: custom.js script already present or </body> missing")
-
-          open(p, "w", encoding="utf-8").write(s)
-          PY
+      #
+      # P7 已把这里原有一个 "Inject shypwd custom frontend" 步骤删除 —— 它把仓库里的
+      # custom/custom.css + custom/custom.js 复制进 public/web-vault/ 并往 index.html
+      # 注入 <link>/<script>。这两份文件(L4 运行期补丁层, 共 3262 行)的每一段都已迁进
+      # fork 源码 shiranzby/vw_web_builds@shypwd, 产物自带, 故 custom/ 与注入步骤一并退役。
+      # 上面那条 "Verify frontend is our patched build" 已加负向守卫, 防止注入层被写回来。
 
       - name: Replace D1_DATABASE_ID in wrangler.toml
         run: sed -i "s/\${D1_DATABASE_ID}/${{ secrets.D1_DATABASE_ID }}/g" wrangler.toml
