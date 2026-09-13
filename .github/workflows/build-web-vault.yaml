@@ -185,6 +185,9 @@ jobs:
             # 值更稳: 值可能被后续调整, 段标记只在整段被删/被 rebase 冲掉时才消失。
             grep -q 'F\. 窄屏布局' .vw.css \
               || { echo "❌ css/vaultwarden.css 里找不到 F 段(窄屏布局)" >&2; fail=1; }
+            # G 段(底部标签栏样式)也是 L4 迁移来的, 随 J17 落地(2026-09-13)。同上看段标记。
+            grep -q 'G\. 底部标签栏' .vw.css \
+              || { echo "❌ css/vaultwarden.css 里找不到 G 段(底部标签栏)" >&2; fail=1; }
             echo "✅ css/vaultwarden.css 由构建自带 ($(wc -c < .vw.css) bytes)"
           else
             echo "❌ 产物缺少 css/vaultwarden.css —— copy-webpack-plugin 的复制规则没生效" >&2; fail=1
@@ -222,8 +225,25 @@ jobs:
             || { echo "❌ 产物里找不到 J12(行组件 emit moveToFolder)" >&2; fail=1; }
           echo "moveToFolder 总出现次数: $(grep -o 'moveToFolder' .main.js | wc -l)  (官方基线为 2)"
 
+          # 6) J17 底部标签栏  ← apps/web/src/app/layouts/mobile-tab-bar.component.{ts,html}
+          #                    + web-layout.component.{ts,html}(挂载点)
+          #    L4 的 §10 是"每次路由变化后往 document.body 注入 <nav>"。源码层改成一个
+          #    **常驻组件**(app-mobile-tab-bar), 挂在 app-layout 外壳里 ——
+          #    这个外壳只有登录后的 user/organization-layout 用, 等价于 L4 的 bit-layout 守卫。
+          #    它是 keystone: F2 想隐藏 side-nav、I 段想隐藏 app-vault-header, 都靠它提供入口。
+          #
+          #    断言两个字符串字面量(不参与标识符混淆), 实测官方基线**都不含**:
+          #      warden-tabbar      —— 组件模板的宿主 id/class(模板没被编译进来就没有)
+          #      app-mobile-tab-bar —— 组件选择器
+          #    (CSS 那一半的 G 段标记已在上面第 3 项里断言。)
+          grep -qF 'warden-tabbar' .main.js \
+            || { echo "❌ 产物里找不到 J17(底栏宿主 id/class 'warden-tabbar')" >&2; fail=1; }
+          grep -qF 'app-mobile-tab-bar' .main.js \
+            || { echo "❌ 产物里找不到 J17(组件选择器 'app-mobile-tab-bar')" >&2; fail=1; }
+          echo "warden-tabbar 总出现次数: $(grep -o 'warden-tabbar' .main.js | wc -l)  (官方基线为 0)"
+
           [ "${fail}" -eq 0 ] || exit 1
-          echo "✅ 五项源码级定制(F/J8/J12 + 视口 + 主密码长度)均已在实际产物中得到验证"
+          echo "✅ 六项源码级定制(F/J8/J12/J17 + 视口 + 主密码长度)均已在实际产物中得到验证"
 
       - name: Disk space after
         if: always()
