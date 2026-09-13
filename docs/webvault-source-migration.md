@@ -323,6 +323,87 @@ Phase 1 用"补丁"解决了 2 处改动，但补丁机制本身有代价：升�
 **在 v2026.6.4 就已经存在**，不是 8.0 新引入的。它们确实让 L4 里"4 个 th / `th.tw-w-12`"那套
 DOM 假设很脆，但那是 L4 自身的问题（对着编译产物猜 DOM），与版本跳跃无关。
 
+### Phase 2.5 — 版本跳跃 v2026.6.4 → v2026.8.0 兼容性评估 ✅ 已完成
+
+**结论：后端一行都不用改，且 8.0 的新功能默认全关 —— UI 行为 ≈ v2026.6.4。**
+
+**判据一：端点集合零新增。** 从 `libs/common/src/services/api.service.ts` 提取
+`send("METHOD", "path")` 对：v2026.6.4 = **51** 个，v2026.8.0 = **50** 个，
+**新增 0 个**，只删掉 1 个 `POST /accounts/kdf`（后端 `src/router.rs:55` 仍保留该路由，
+属于无害死端点）。即 8.0 客户端不会去调任何后端没有的接口。
+
+**判据二：feature flag 默认全关。** `/api/config` 的 `featureStates` 只显式声明 4 项：
+
+| flag | 值 | 含义 |
+|---|---|---|
+| `pm-19148-innovation-archive` | **true** | 归档功能开启 |
+| `pm-19051-send-email-verification` | false | — |
+| `cxp-import-mobile` / `cxp-export-mobile` | true | 移动端导入 / 导出 |
+
+其余 flag 不在响应里 → 客户端 `getFeatureFlagValue()` 落到 `DefaultFeatureFlagValue`，
+**一律 FALSE**：
+
+| 8.0 的新功能 | flag | 默认 | 自建服务的实际表现 |
+|---|---|---|---|
+| 新条目类型（银行账户 / 护照 / 驾照 / SSH 密钥） | `pm-32009-new-item-types` | FALSE | **关闭** |
+| 官方批量操作条 | `pm-37785-vault-batch-bar` | FALSE | **关闭** → 沿用旧选择模式 |
+| 快捷复制图标 | `pm-40435-quick-copy-icon-setting` | FALSE | 关闭 |
+| VFO1 术语（"集合"→"共享文件夹"） | `vfo1-foundation` | FALSE | 关闭 → 沿用旧措辞与旧图标 |
+
+> 这四个开关同时是**杠杆**：后端 `src/models/cipher.rs` 已支持 type `1..=8`，
+> 想让用户建银行账户/护照，只需在 `src/handlers/config.rs` 的 `featureStates` 里**加一行**，
+> 不触碰任何 API 形状。同理，若哪天启用官方批量条，L4 里那套「选择模式」改动可整段退役。
+
+**判据三：版本号不 gate 任何功能。** `serverConfig.version`（后端给 `2026.6.0`）
+在全代码库**只被读 1 次**，位于 `default-config.service.ts:212` 的
+`checkServerMeetsVersionRequirement$()` 内部，而该方法**零调用点**（只有抽象定义 + 实现）。
+→ 后端报什么版本号都不影响功能。
+
+**判据四：归档（8.0 唯一被打开的"新"功能）后端完全就绪。**
+
+| 环节 | 客户端 | 后端 | 结论 |
+|---|---|---|---|
+| 端点 | `send("PUT", "/ciphers/archive"` 或 `"/ciphers/unarchive", …)` | `router.rs:161/163` 批量、`:155/157` 单条 | ✅ 路径匹配 |
+| 请求体 | `CipherBulkArchiveRequest { ids: [] }` | `json_each(?3, '$.ids')` | ✅ 字段匹配 |
+| 响应 | `new ListResponse(r, CipherResponse)` | `build_cipher_list_response` | ✅ |
+| 归档标记 | `isArchived = !!cipher.archivedDate` | `cipher.rs:275` 输出 `archivedDate`；sync 见 `handlers/ciphers.rs:1040` | ✅ |
+| **菜单可见性** | `userCanArchive$` ← `hasPremiumFromAnySource$` ← `premiumPersonally \|\| premiumFromOrganization` | sync 给 `premium: true` / `premiumFromOrganization: false` | ✅ |
+
+最后一行值得单独记一笔：客户端读的是 `response.premiumPersonally`，而后端字段名是 `premium`，
+看起来对不上 —— 但 `BaseResponse.getResponseProperty()` 会**自动尝试另一种大小写**
+（`base.response.ts:24-35`），`"Premium"` 能落到 `"premium"`，因此 premium 判定为 true、
+归档菜单会出现。**这类"驼峰大小写"差异，核对后端字段时不能只靠肉眼比对。**
+
+**判据五：sync 里新增的 crypto 处理不会抛异常。** 8.0 在
+`default-sync.service.ts:183` **无条件**调用了 `runCryptoSyncHandler()`
+（源码注释：数据不一致时会 throw 拒绝同步），它把 `profile.accountKeys` 交给 SDK 的
+`crypto_sync_handler().on_sync()`。逐层核对后端返回的 `accountKeys`：
+
+```
+{"publicKeyEncryptionKeyPair":{wrappedPrivateKey, publicKey, signedPublicKey:null},
+ "signatureKeyPair":null, "securityState":null}
+```
+
+- `PrivateKeysResponseModel` 构造要求 `publicKeyEncryptionKeyPair` 是对象 ✅；
+  且 `signatureKeyPair` / `securityState` **同为 null → 通过"两者必须同时存在或同时缺失"的校验** ✅
+- `toWrappedAccountCryptographicState()`：两者皆 null → 走 **V1 分支** `{V1:{private_key}}` ✅
+- `PublicKeyEncryptionKeyPairResponse` 要求 `publicKey` / `wrappedPrivateKey` 为字符串；
+  后端 `users.public_key` / `private_key` 都是非 Option 的 `String` ✅
+
+**P5/P6 的源码锚点（实测，取代 L4 对着编译产物的猜测）**
+`apps/web/src/app/vault/components/vault-items/vault-items.component.html`：
+
+- 外层是 `cdk-virtual-scroll-viewport`（`[itemSize]="RowHeight"`），
+  批量条可见时由 `batchBarService.barVisible()` 切换 `tw-pb-[7.5rem]`
+- `<bit-table [dataSource]="dataSource" layout="fixed">` ← **`table-fixed` 的真正来源**
+- 表头第 1 个 `<th bitCell class="tw-w-24 tw-whitespace-nowrap" colspan="2">` 是复选框列
+  ← 这正是 L4 观察到的"th 比 td 少一列"的真实原因（**不是**"4 个 th 覆盖 5 列"）
+- 名称列 `[class]="showExtraColumn ? 'tw-w-3/5' : 'tw-w-full'"`，
+  而 `showExtraColumn = showCollections || showGroups || showOwner`（`.ts:279`）——
+  个人保险库三者皆 false → **`tw-w-full`**
+- 官方确实有响应式，但**只有 Tailwind 的 `lg:` / `xl:`（≥1024 / ≥1280）**，即"桌面宽屏"档；
+  **移动端断点（≤768）一个都没有** —— 与前述"官方零移动端响应式"的结论一致
+
 ### Phase 3 — 迁移功能层（主体工作量）
 `custom.js` 现在 **1983 行**、`custom.css` **1279 行**，共 13 个功能点。
 **逐个迁移，每迁一个就从 `custom.js` 里删掉对应段落**（保证任一时刻两处不并存）：
@@ -347,23 +428,23 @@ DOM 假设很脆，但那是 L4 自身的问题（对着编译产物猜 DOM）�
 
 ---
 
-## 5. 迁移完成后 CI 的样子（净变化：变简单）
+## 5. CI 净变化（截至 Phase 2.5 的实际状态）
 
-**删掉的步骤（3 个）**：
-- `Patch web vault master password minimum length`（→ 已进源码 `patches/01-`）
-- index.html 里的视口替换（→ 已进源码 `patches/02-`）
-- `Inject shypwd custom frontend`（Phase 3 删；现在仍需注入 `custom.css/js`，L4 还在）
+| 步骤 | 变化 |
+|---|---|
+| `Patch web vault master password minimum length` | ✅ **已删**（进源码 `utils.ts`） |
+| index.html 里的视口替换 | ✅ **已删**（进源码 `index.html`） |
+| `Apply web vault overrides (vaultwarden.css)` 的 `cp` | ✅ **已删**（改由 fork 的 `copy-webpack-plugin` 构建期复制） |
+| 前端来源 | ✅ **已改**：`VAULT_REPO` → `shiranzby/vw_web_builds`，新增 `VAULT_BRANCH=shypwd` |
+| `Inject shypwd custom frontend`（custom.js / custom.css） | ⬜ 保留至 Phase 3 迁完 13 个功能点 |
+| `*.map` 删除 | 保留（Cloudflare 单文件体积限制，与构建方式无关） |
+| **新增** 版本一致性校验 | `Verify version matches the source` —— 与 fork 的 `apps/web/package.json` 比对，防 artifact 名标错版本 |
+| **新增** 定制硬断言（构建侧） | `Verify our customizations are in the built artifact` —— 视口 / 密码下限 / `css/vaultwarden.css` **三项**，任一不符即 `exit 1` |
+| **新增** 定制硬断言（部署侧） | `Verify frontend is our patched build (fail hard)` —— 再补 `vw-version.json` 一项，共四项 |
 
-第 1、2 项**已删**（Phase 1）；第 3 项要等 Phase 2 迁完 13 个功能点。
-
-**改动的步骤（1 个）**：前端来源
-```diff
-- wget -q "https://github.com/dani-garcia/bw_web_builds/releases/download/${TAG}/bw_web_${TAG}.tar.gz"
-+ gh run download <最新成功的 Build Web Vault run> --name "bw_web_vault-${TAG}"
-```
-（为什么不是 Release 资产：见 §4 的 Releases API 500 结论。）
-
-**保留的步骤**：`*.map` 删除（Cloudflare 单文件体积限制，与构建方式无关）。
+> 前端来源那次改动就是 P1 的安全阀：`VAULT_REPO` 换掉的当时，fork 与官方还是同一个 commit，
+> 所以产物必须逐字节一致。实测两棵树总字节完全相同（156,125,341），281 个文件里 272 个
+> SHA256 相同，其余 9 个差异全部可解释为构建期非确定性（见 §4 与 Phase 2 小节）。
 
 ---
 
@@ -410,16 +491,22 @@ DOM 假设很脆，但那是 L4 自身的问题（对着编译产物猜 DOM）�
 
 ---
 
-## 7. 待确认 / 状态
+## 7. 状态与决策
 
 | # | 事项 | 状态 |
 |---|---|---|
-| 1 | **Phase 0 是否做** | ✅ 已完成（run #3 成功，逐字节验证见 §4） |
-| 2 | **补丁的组织方式** | ✅ 已按"**一个特性一个 `.patch`**"落地（`01-` / `02-`） |
-| 3 | **升级策略**：跟 `vaultwarden/vw_web_builds` 的节奏，还是长期钉死一个版本 | ⬜ 待定（当前钉 `v2026.6.4`，与线上一致） |
-| 4 | Phase 2 的**迁移顺序**是否认可（先做"移动端下拉"+"表格结构"两个重灾区） | ⬜ 待确认 |
-| 5 | **是否现在就把线上切到我们自己的产物**（改 `push-cloudflare.yaml` 那一行） | ⬜ 待确认 —— 需先跑通一次带补丁的构建并验证资产 |
+| 1 | Phase 0 打通流水线 | ✅ 已完成（run #3 成功，逐字节验证见 §4） |
+| 2 | 补丁的组织方式 | ⚪ 曾按"一个特性一个 `.patch`"落地（`01-` / `02-`）→ **Phase 2 后已退役**，两处改动均已进 fork 源码 |
+| 3 | **部署路线** | ✅ 已定：**fork 前端源到独立仓库** `shiranzby/vw_web_builds`（分支 `shypwd`），源码级定制，不再有运行时补丁层 |
+| 4 | **目标版本** | ✅ 已定：**直接上最新 `v2026.8.0`**（fork 点 `a868ea0`，P1 已证明与官方同源同字节） |
+| 5 | **升级策略** | ✅ 已定：跟随上游大版本，**手动触发**构建，每次升级单独一个 commit 便于回退 |
+| 6 | **验证方式** | ✅ 已定：本地 `webpack serve` 热重载（`:8080`，`apps/web/config/local.json` 代理到线上）+ CI 产物断言 + 真机走查 |
+| 7 | Phase 3 迁移顺序 | ⬜ 待开始（先做"移动端下拉" + "表格结构"两个重灾区，见 Phase 3） |
+| 8 | **线上何时切到新产物** | ⬜ 待 P5/P6 迁完 —— 线上有真实密码数据，切换前需要一条独立验收地址 |
 
-> 第 3 条的现实含义：钉死 → 上游修安全问题时我们不会自动拿到；跟随 → 每次升版本要
-> `git apply` 全部补丁、可能人工解冲突（**冲突在编译期暴露，不会静默**）。
-> 折中做法（推荐）：**跟随大版本、但手动触发**，每次升级单独一个 PR，方便回退。
+> 第 5 条的现实含义：钉死版本 → 上游修安全问题时拿不到；跟随 → 升版本时用 `git rebase`
+> 把本地提交移到新分支上（fork 保留了共同祖先，**冲突能自动识别**，不会只能肉眼比对）。
+> 折中做法（已采纳）：**跟随大版本、但手动触发**。
+
+> 第 6 条的实操要点：`local.json` 已在 `.gitignore` 里，属于本机私有配置；
+> 本地页面 + `/api/config` 代理到 `shypwd.cc.cd` 已验证可用（本机可直连该域名，无需走代理）。
