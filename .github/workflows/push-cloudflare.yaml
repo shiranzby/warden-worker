@@ -106,6 +106,9 @@ jobs:
             --name "bw_web_vault-${TAG}" --dir .frontend
 
           # Extract to public/web-vault
+          # public/ 现在不在仓库里(最后一个受跟踪文件 public/css/vaultwarden.css 已随 P2 删除),
+          # 新 checkout 不会自动创建它, 直接 tar -C public/ 会 "Cannot open: No such file or directory"。
+          mkdir -p public
           tar -xzf ".frontend/bw_web_vault.tar.gz" -C public/
 
           # bw_web_builds extracts into a web-vault folder (expected)
