@@ -191,15 +191,15 @@ if (want("guard")) {
     /* 三个控件逐个真实触摸。⚠️ 必须用 touchscreen.tap —— DOM 的 .click() 打不开
        ng-select(它监听 mousedown), 于是会误报"面板打不开"。 */
     ck(`G1 ${vw}x${vh} 导入页有 3 个选择控件`, n === 3, n);
-    /* ★ v11 回归点: 手机端必须闸住 ng-select 内部搜索框的软键盘。
-       用户实测: 一戳就弹输入法, 面板(向下展开)整块落在键盘后面 → 看不到选项。
-       修法是给内部 input 设 readonly + inputmode=none(见 custom.js §8.5)。 */
+    /* ★ v12 回归点(方案 B): 面板靠**重新定位**躲开软键盘, 不再去写应用的表单控件。
+       这两条守着"别再越界改别人的控件" —— v11 就是那么干的, 结果触发了应用的
+       "必须输入内容。"必填校验, 用户要按两次才展开。 */
     const kb = await page.evaluate(() => Array.from(document.querySelectorAll("main#main-content bit-select")).map((bs) => {
       const inp = bs.querySelector(".ng-input input, input[type=text]");
       return inp ? { ro: inp.readOnly, im: inp.getAttribute("inputmode") } : null;
     }));
-    ck(`G1 ${vw}x${vh} ★ 内部搜索框已闸住键盘(readonly)`, kb.length === 3 && kb.every(x => x && x.ro === true), kb);
-    ck(`G1 ${vw}x${vh} ★ 内部搜索框 inputmode=none`, kb.length === 3 && kb.every(x => x && x.im === "none"), kb);
+    ck(`G1 ${vw}x${vh} ★ 内部 input 没被写 readonly(不越界改表单控件)`, kb.length === 3 && kb.every(x => x && x.ro === false), kb);
+    ck(`G1 ${vw}x${vh} ★ 内部 input 没有 inputmode(不越界改表单控件)`, kb.length === 3 && kb.every(x => x && x.im === null), kb);
     for (let i = 0; i < n; i++) {
       await page.evaluate((k) => { const e = document.querySelectorAll("main#main-content bit-select")[k]; if (e) e.scrollIntoView({ block: "center" }); }, i);
       await sleep(700);
@@ -225,15 +225,21 @@ if (want("guard")) {
           if (el && (el === o || o.contains(el))) clickable++;
         }
         return { opened: true, y: Math.round(pb.y), firstOptY: first ? Math.round(first.y) : null, firstVisible: !!first && first.y >= 0, opts: opts.length, clickable, z: getComputedStyle(p).zIndex,
-          /* v11: 拿到焦点的如果正好是内部搜索框, 它必须是 readonly —— 否则真机上键盘会盖住面板 */
-          focusRO: (() => { const a = document.activeElement; return a && a.tagName === "INPUT" && a.closest("ng-select") ? a.readOnly : "n/a"; })() };
+          /* ★ v12: 手机端面板应被 §8.5 接管为 fixed, 且**完全落在 visualViewport 的
+             可见区内** —— 这才是"躲开软键盘"的可测量形式(真机上键盘让 vv.height 变小)。 */
+          pos: getComputedStyle(p).position,
+          overflowVis: (() => {
+            const vv = window.visualViewport; const vb = (vv ? vv.offsetTop : 0) + (vv ? vv.height : window.innerHeight);
+            return Math.round(Math.max(0, pb.bottom - vb));
+          })() };
       });
       ck(`G1 ${vw}x${vh} 控件#${i} ★ 面板能拉出`, r.opened === true, r);
       ck(`G1 ${vw}x${vh} 控件#${i} ★ 顶部没被顶出屏幕`, r.opened && r.y >= 0, r);
       ck(`G1 ${vw}x${vh} 控件#${i} ★ 第一个选项可见`, r.firstVisible === true, r);
       ck(`G1 ${vw}x${vh} 控件#${i} ★ 选项可点`, r.clickable >= 1, r);
       ck(`G1 ${vw}x${vh} 控件#${i} z-index >= 原生 2050`, Number(r.z) >= 2050, r.z);
-      ck(`G1 ${vw}x${vh} 控件#${i} ★ 获得焦点的内部搜索框是 readonly(→ 不弹键盘)`, r.focusRO === "n/a" || r.focusRO === true, r.focusRO);
+      ck(`G1 ${vw}x${vh} 控件#${i} ★ 面板被接管为 fixed(手机端)`, r.pos === "fixed", r.pos);
+      ck(`G1 ${vw}x${vh} 控件#${i} ★ 面板完全落在可见区内(躲开键盘)`, r.overflowVis === 0, r.overflowVis);
       if (SHOT) { fs.mkdirSync(OUT, { recursive: true }); await page.screenshot({ path: path.join(OUT, `guard-dropdown-${vw}-${i}.png`) }); }
       await page.keyboard.press("Escape").catch(() => {});
       await sleep(500);
@@ -429,7 +435,7 @@ if (want("guard")) {
     await ctx.close();
   }
 
-  hdr("② 回归点 G7 桌面端 select 不能被误伤 (v11)");
+  hdr("② 回归点 G7 桌面端 select 不能被误伤 (v12)");
   {
     /* §8.5 只该在窄屏闸键盘。桌面没有软键盘, 而且要靠打字筛选长列表 ——
        这条守着"别把修复应用到桌面"。 */
@@ -456,6 +462,9 @@ if (want("guard")) {
     const c = await page.evaluate(() => { const e = document.querySelectorAll("main#main-content bit-select")[2]; const b = e.getBoundingClientRect(); return { x: Math.round(b.x + Math.min(b.width / 2, 60)), y: Math.round(b.y + b.height / 2) }; });
     await page.mouse.click(c.x, c.y);
     await sleep(900);
+    /* ★ v12: 桌面没有软键盘, §8.5 必须**完全不接管**面板(保持应用原生的绝对定位) */
+    const dpos = await page.evaluate(() => { const p = document.querySelector(".ng-dropdown-panel"); return p ? getComputedStyle(p).position : null; });
+    ck("G7 桌面 ★ 面板未被接管(保持原生 absolute)", dpos === "absolute", dpos);
     const before = await page.evaluate(() => document.querySelectorAll(".ng-dropdown-panel .ng-option").length);
     await page.keyboard.type("1pux");
     await sleep(900);

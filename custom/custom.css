@@ -1269,7 +1269,11 @@ ng-dropdown-panel,
    "select 上方还剩多少空间", 写死 46vh 会把面板顶部顶出屏幕:
    实测 375x667 -> y=-10、320x568 -> y=-13, **最前面几个选项跑到屏幕外,
    而 ng-select 的面板只能往下滚, 够不回来**(用户原话"各个抽屉选项无法列出来")。
-   .ng-select-top 分支刻意不写规则, 交给 ng-select 自己按上方可用空间算。 */
+   .ng-select-top 分支刻意不写规则, 交给 ng-select 自己按上方可用空间算。
+
+   ⚠️ v12 起**不能再用 !important**: 移动端由 custom.js §8.5 按 visualViewport 的
+   "键盘可见区"动态算 max-height 并写在行内样式上; 只有非 important 的规则才会
+   被行内样式覆盖。这里保留 46vh 只作为**桌面端/JS 未接管时**的默认上限。 */
 .ng-dropdown-panel.ng-select-bottom .ng-dropdown-panel-items {
-  max-height: 46vh !important;
+  max-height: 46vh;
 }

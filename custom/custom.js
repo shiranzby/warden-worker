@@ -1483,9 +1483,8 @@
     /* 表头 ⋯ 与行内 ⋯ 对齐(见表头的注释): 行数/列宽/选择模式一变就会漂,
        放在这里每次同步都校正一次。 */
     alignHeaderDots();
-    /* 手机端: 闸住 ng-select 内部搜索框的软键盘(见 §8.5)。
-       Angular 每次重建表单都会把 input 换新的, 所以每次同步都要补一遍。 */
-    muteSelectKeyboard();
+    /* 手机端: 把下拉面板按"键盘可见区"重新定位(见 §8.5) */
+    fitSelectPanel();
   }
 
   function setSelecting(on) {
@@ -1581,35 +1580,80 @@
   }
 
   /* =====================================================================
-   * 8.5 别让 ng-select 的搜索框弹出输入法 (v11, 手机端)
+   * 8.5 移动端: 让 ng-select 的面板躲开软键盘 (v12, 方案 B)
    *
-   *     Bitwarden 的下拉是 ng-select **searchable**, 内部有个真实的
-   *     <input type="text">。手机上戳一下: 容器确实把面板展开了(实测 71 个选项、
-   *     z=2400、y=425 高 406), 但**同一个动作也会 focus 那个 input** →
-   *     iOS 弹出软键盘, 而面板是向下展开的(ng-select-bottom), 整块正好落在
-   *     键盘后面 → 用户只看到输入法, 看不到选项(用户截图: 字段里出现光标 + 满屏键盘)。
+   *     ⚠️ v11 的教训(已全部撤掉): 上一版把 readonly/inputmode 写进了**应用自己的
+   *     表单控件** —— 那是越界。它干扰了应用的焦点与必填校验, 用户看到
+   *     "必须输入内容。"(应用自己的 inputRequired 文案)先冒出来, 第二次点才展开。
+   *     **绝不要去写别人拥有的表单控件的状态属性。**
    *
-   *     ⚠️ 所以"抽屉选项拉不出来"是误判 —— 面板一直都在, 是**被键盘盖住了**。
-   *     ⚠️ 为什么桌面 + 无头浏览器永远测不出来: 它们没有软键盘, 面板自然可见。
-   *        这就是 v10 那轮"双引擎都复现不了"的真正原因。
+   *     诊断实证(决定了本方案的可行性):
+   *       · 面板是 appendTo="body" 的, 挂在 <body> 下, ng-select 自己按 body 坐标算
+   *         top/left(实测 top:423 / left:24 / width:342)
+   *       · 祖先链上 **没有任何 transform / filter / contain** → position:fixed 安全
+   *       · 有 window.visualViewport, **软键盘弹出时它的 height 会缩小**
+   *         —— 这正是"键盘把面板盖住"的可测量形式
    *
-   *     修法: 窄屏把内部 input 设 readonly + inputmode="none" 双保险:
-   *       · readonly      —— iOS/Android 对 readonly 输入框**一定不弹键盘**(最稳)
-   *       · inputmode="none" —— 标准语义("不显示虚拟键盘"), iOS Safari 12.2+ 支持;
-   *                             但对 type=text 在部分 iOS 上会被忽略, 所以留 readonly 兜底
-   *     桌面端(>768px)刻意不动: 那边没有软键盘, 而且要靠打字筛选长列表。
+   *     于是本方案只做一件事: **按"键盘可见区"把面板重新定位**, 一行都不碰表单控件。
+   *     算法: 取可见区 [visTop, visBottom] = [vv.offsetTop, vv.offsetTop + vv.height],
+   *       下方可用 = visBottom - 字段底 - GAP; 上方可用 = 字段顶 - visTop - GAP;
+   *       哪边大就往哪边展开, 列表最大高度卡在可用空间内并把面板夹在可见区内。
+   *       键盘弹起 → visualViewport resize → 重算一次即自动贴合。
+   *
+   *     ⚠️ 无头浏览器没有软键盘, 本地只能验证"定位逻辑正确 + 不回归";
+   *        真机请用 URL 开关对比: ?sel=auto(默认) / ?sel=above(强制向上) / ?sel=off(关掉)。
+   *        选过一次会记进 localStorage, 手机上设一次就固定了。
    * ===================================================================== */
   var DESKTOP_MQ = window.matchMedia ? window.matchMedia("(min-width: 769px)") : null;
-  function muteSelectKeyboard() {
-    if (DESKTOP_MQ && DESKTOP_MQ.matches) return;      // 桌面: 保持可输入, 不碰
-    var inputs = document.querySelectorAll(
-      "main#main-content bit-select .ng-input input, main#main-content ng-select input[type=text]"
-    );
-    for (var i = 0; i < inputs.length; i++) {
-      var el = inputs[i];
-      if (el.getAttribute("inputmode") !== "none") el.setAttribute("inputmode", "none");
-      if (!el.readOnly) el.readOnly = true;            // 判变化再写, 免得喂 MutationObserver 空转
-    }
+  var SEL_MODE = (function () {
+    var m = /[?&]sel=(auto|above|off)\b/.exec(location.search);
+    try {
+      if (m) { localStorage.setItem("warden-sel-mode", m[1]); return m[1]; }
+      return localStorage.getItem("warden-sel-mode") || "auto";
+    } catch (e) { return m ? m[1] : "auto"; }
+  })();
+  var lastPanelSig = "";
+
+  function fitSelectPanel() {
+    if (SEL_MODE === "off") return;
+    if (DESKTOP_MQ && DESKTOP_MQ.matches) return;      // 桌面没有软键盘, 保持原生定位
+    var ng = document.querySelector("ng-select.ng-select-opened");
+    var panel = document.querySelector(".ng-dropdown-panel");
+    if (!ng || !panel) { lastPanelSig = ""; return; }
+    var items = panel.querySelector(".ng-dropdown-panel-items");
+    if (!items) return;
+
+    /* 可见区 = 软键盘之上的那块。没有 visualViewport 就退回窗口高度。 */
+    var vv = window.visualViewport;
+    var visTop = vv ? vv.offsetTop : 0;
+    var visH = vv ? vv.height : window.innerHeight;
+    var visBottom = visTop + visH;
+
+    var f = ng.getBoundingClientRect();
+    var GAP = 6, PAD = 8, MIN = 96;
+    var below = visBottom - f.bottom - GAP - PAD;
+    var above = f.top - visTop - GAP - PAD;
+    var up = SEL_MODE === "above" ? true : above > below;
+    var avail = Math.round(Math.min(Math.max(up ? above : below, MIN), visH - 2 * PAD));
+
+    /* ⚠️ 只用 top, 不用 bottom —— position:fixed 的 bottom 参照的是**布局视口**,
+       键盘弹起时布局视口不变, 用 bottom 会正好把面板放到键盘后面。 */
+    var top = up ? Math.round(f.top) - GAP - avail : Math.round(f.bottom) + GAP;
+    top = Math.max(visTop + PAD, Math.min(top, visBottom - PAD - avail));
+
+    var sig = [up, avail, top, Math.round(f.left), Math.round(f.width), Math.round(visH)].join("|");
+    if (sig === lastPanelSig) return;                  // 判变化再写, 免得白改样式
+    lastPanelSig = sig;
+
+    var st = panel.style;
+    st.position = "fixed";
+    st.left = Math.round(f.left) + "px";
+    st.right = "auto";
+    st.width = Math.round(f.width) + "px";
+    st.top = top + "px";
+    st.bottom = "auto";
+    st.maxHeight = avail + "px";
+    items.style.maxHeight = Math.max(60, avail - 4) + "px";
   }
 
   /* =====================================================================
@@ -1899,12 +1943,20 @@
       if (b) lastMenuRow = b.closest("tr[appvaultcipherrow]");
     }, true);
 
-    /* §8.5 的兜底: 万一在"表单刚渲染、syncChrome 还没轮到"的几百毫秒空档里被戳了,
-       input 已经拿到焦点、键盘正在弹 —— 这里立刻补上 readonly, iOS 会把键盘收回去。
-       收窄到只认 ng-select 内部的 input, 绝不能碰登录框 / 密码库搜索框。 */
-    document.addEventListener("focusin", function (ev) {
-      var el = ev.target;
-      if (el && el.tagName === "INPUT" && el.closest && el.closest("ng-select")) muteSelectKeyboard();
+    /* §8.5 真机上软键盘弹起/收起会让 visualViewport 变高矮 —— 跟着重新贴合面板。
+       这是本方案能"自动躲开键盘"的关键: 键盘一来, 可见区变小, 面板立刻重排。 */
+    if (window.visualViewport) {
+      var onVV = function () { if (document.querySelector(".ng-dropdown-panel")) fitSelectPanel(); };
+      window.visualViewport.addEventListener("resize", onVV);
+      window.visualViewport.addEventListener("scroll", onVV);
+    }
+    /* 面板是 ng-select 在下一帧才插进 <body> 的, 等 syncChrome 的 400ms 防抖太慢
+       (用户会看到面板先出现在被键盘挡住的位置再跳一下)。点进下拉后排几次探测尽早摆正。 */
+    document.addEventListener("click", function (ev) {
+      var t = ev.target;
+      if (!t || !t.closest || !t.closest("ng-select")) return;
+      var delays = [0, 60, 160, 400, 800];
+      for (var i = 0; i < delays.length; i++) setTimeout(fitSelectPanel, delays[i]);
     }, true);
 
     var observer = new MutationObserver(function (muts) {
