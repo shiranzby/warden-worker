@@ -1480,6 +1480,9 @@
        (SYNC 到位与否会改变 key, 重贴一次就自动对齐) */
     applyStoredAvatar();
     if (currentRoute().indexOf("/settings") === 0) hideAppAvatarRow();
+    /* 表头 ⋯ 与行内 ⋯ 对齐(见表头的注释): 行数/列宽/选择模式一变就会漂,
+       放在这里每次同步都校正一次。 */
+    alignHeaderDots();
   }
 
   function setSelecting(on) {
@@ -1487,6 +1490,14 @@
     document.body.classList.toggle("warden-selecting", on);
     if (!on) uncheckAll();
     updateSelbar();
+    /* ⚠️ 进出选择模式会放/收复选框列, 表格是**分帧**重排的, 而且不是几帧就完 ——
+       实测 700ms 时还在动。只量一次必然量到中间态(实测量到差 11.2px, 稳定后 18px)。
+       做法: 连量 2.4s(每 60ms 一次), 每次都先清零再量, 幂等, 收敛后就一直是 0。 */
+    var tries = 0;
+    var t = setInterval(function () {
+      alignHeaderDots();
+      if (++tries >= 12) clearInterval(t);
+    }, 80);
   }
 
   function uncheckAll() {
@@ -1509,49 +1520,39 @@
   }
 
   /* =====================================================================
-   * 8. 底部批量操作条
+   * 8. 批量操作: 不再自建底部操作条 (v10)
+   *    用户反馈: 点了「选择」以后底部会冒出一条操作列表, 在移动端白占约 65px
+   *    高度。而且那三个动作本来就是重复的:
+   *      · 「全选」    = 表头的复选框(选择模式下会显示出来)
+   *      · 「移入回收站」= 表头 ⋯ 菜单里的「删除」(应用自带)
+   *      · 「取消」    = 工具行那个「选择 / 取消」胶囊
+   *    所以整条删掉, 只保留胶囊的文案切换 + 把表头 ⋯ 对齐到行内 ⋯。
    * ===================================================================== */
 
-  function ensureBulkBar() {
-    if (document.getElementById("warden-bulkbar")) return;
+  /* ⚠️ 表头 ⋯ 与行内 ⋯ 的对齐**必须实测补差**, 不能靠写死内边距:
+     实测两者的单元格右缘都是 380, 但表头 th 的 padding-right 是 12px、行内 td 是 6px,
+     而且行内那个按钮还额外越出单元格 12px(右缘 386) —— 普通态差 6px, 选择模式差 18px。
+     差值随状态变化, 写死任何一个值都会在另一个状态里错位。
 
-    var bar = document.createElement("div");
-    bar.id = "warden-bulkbar";
-    bar.className = "warden-bulkbar";
-
-    var all = document.createElement("button");
-    all.type = "button";
-    all.className = "warden-bulk-all";
-    all.addEventListener("click", function () {
-      var head = document.querySelector('thead input[aria-label="全选"]');
-      if (head) head.click();
-    });
-
-    var count = document.createElement("span");
-    count.className = "warden-bulk-count";
-
-    var del = document.createElement("button");
-    del.type = "button";
-    del.className = "warden-bulk-del";
-    del.textContent = "移入回收站";
-    del.addEventListener("click", bulkTrash);
-
-    var close = document.createElement("button");
-    close.type = "button";
-    close.className = "warden-bulk-cancel";
-    close.textContent = "取消";
-    close.addEventListener("click", function () { setSelecting(false); });
-
-    bar.appendChild(all);
-    bar.appendChild(count);
-    bar.appendChild(del);
-    bar.appendChild(close);
-    document.body.appendChild(bar);
+     ⚠️⚠️ 补差**绝对不能用 transform**:
+       transform 走合成器层, 清掉之后同一 tick 内 getBoundingClientRect() 仍可能返回
+       带旧位移的矩形(实测读到 377 而不是基准 368) —— 于是算出 d=9 又写 9, 永远锁死
+       在 9px, 而真实需要 18px。改成累加式也只是把死锁换个位置(普通态残留 -6px)。
+       改用**布局属性 margin-right**(右对齐的 inline-block 给负 margin 就右移):
+       布局属性的写入会被下一次 getBoundingClientRect 立即反映, 不存在陈旧帧。
+       写法: 先清空 + 读一次 offsetWidth 强制回流, 拿到"零位移基准", 再一次性算差值。 */
+  function alignHeaderDots() {
+    var head = document.querySelector('main#main-content table thead th:last-child button[aria-label="选项"]');
+    var rowBtn = document.querySelector('main#main-content tr[appvaultcipherrow] td:last-child button[aria-label="选项"]');
+    if (!head || !rowBtn) return;
+    head.style.marginRight = "";
+    void head.offsetWidth;                       // 强制回流, 保证读到的是零位移基准
+    var base = head.getBoundingClientRect().right;
+    var d = rowBtn.getBoundingClientRect().right - base;
+    if (Math.abs(d) >= 0.5) head.style.marginRight = (-d).toFixed(1) + "px";
   }
 
   function updateSelbar() {
-    ensureBulkBar();
-
     var seed = document.querySelector("#warden-headbar .warden-selbar-toggle");
     if (seed) {
       var lb = seed.querySelector("span");
@@ -1559,70 +1560,7 @@
       if (selecting) seed.classList.add("warden-selbar-on");
       else seed.classList.remove("warden-selbar-on");
     }
-
-    var bar = document.getElementById("warden-bulkbar");
-    if (!bar) return;
-
-    if (!selecting) {
-      bar.classList.remove("warden-bulk-on");
-      return;
-    }
-    var rows = checkedRows();
-    var total = document.querySelectorAll("tr[appvaultcipherrow]").length;
-
-    bar.classList.add("warden-bulk-on");
-    bar.querySelector(".warden-bulk-count").textContent = "已选 " + rows.length + " 项";
-    var all = bar.querySelector(".warden-bulk-all");
-    all.textContent = (total && rows.length === total) ? "取消全选" : "全选";
-    bar.querySelector(".warden-bulk-del").disabled = rows.length === 0;
-  }
-
-  async function bulkTrash() {
-    var rows = checkedRows();
-    if (!rows.length) return;
-
-    var ids = [];
-    var seen = {};
-    for (var i = 0; i < rows.length; i++) {
-      var c = findCipher(rows[i]);
-      if (c && c.id && !seen[c.id]) { seen[c.id] = 1; ids.push(c.id); }
-    }
-    if (!ids.length) {
-      window.alert("无法确定选中条目的 ID, 已取消操作。");
-      return;
-    }
-    if (!AUTH) {
-      window.alert("未取得会话令牌, 请刷新页面后重试。");
-      return;
-    }
-    if (!window.confirm("将选中的 " + ids.length + " 个项目移入回收站？\n\n可在「回收站」中恢复。")) return;
-
-    var del = document.querySelector("#warden-bulkbar .warden-bulk-del");
-    if (del) { del.disabled = true; del.textContent = "处理中…"; }
-
-    try {
-      var resp = await fetch("/api/ciphers/delete", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", Authorization: AUTH },
-        body: JSON.stringify({ ids: ids })
-      });
-      if (!resp.ok) throw new Error("HTTP " + resp.status);
-
-      for (var k = 0; k < ids.length; k++) deletedIds[ids[k]] = 1;
-      index = index.filter(function (e) { return !deletedIds[e.id]; });
-
-      for (var j = 0; j < rows.length; j++) {
-        if (rows[j].parentNode) rows[j].parentNode.removeChild(rows[j]);
-      }
-      if (window.__wardenAuthRerender) window.__wardenAuthRerender();
-      setSelecting(false);
-      toast("已移入回收站 (" + ids.length + " 项)");
-    } catch (e) {
-      window.alert("删除失败：" + (e && e.message ? e.message : e));
-    } finally {
-      if (del) { del.disabled = false; del.textContent = "移入回收站"; }
-      updateSelbar();
-    }
+    alignHeaderDots();
   }
 
   function toast(msg) {
@@ -1866,6 +1804,10 @@
       var c = findCipher(row);
       if (c) insertTotp(row, c);
     }
+    /* ⚠️ 必须在这里再对齐一次: 上面 insertTotp 会把 TOTP 徽章塞进行内最后一格,
+       那一格的宽度变了, 里面的 ⋯ 就会平移 —— 实测进选择模式后行内 ⋯ 会晚于
+       2s 继续右移约 10px, 只靠 syncChrome() 的 2s 轮询补差永远慢一拍。 */
+    alignHeaderDots();
   }
 
   async function boot() {
@@ -1881,7 +1823,6 @@
 
   function init() {
     ensureStyle();
-    ensureBulkBar();
     syncRouteFlags();   // 再算一次: 文档已就绪, 这次 body 一定在
     onFirstSync(function () { boot(); });
     boot();

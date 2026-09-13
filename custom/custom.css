@@ -256,55 +256,6 @@ table thead th.warden-name-th {
   }
 }
 
-/* ======================================================================
- * D. 底部批量操作条
- * ====================================================================== */
-.warden-bulkbar {
-  display: none;
-}
-.warden-bulkbar.warden-bulk-on {
-  position: fixed;
-  left: 12px;
-  right: 12px;
-  bottom: 16px;
-  z-index: 70;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 14px;
-  background: #ffffff;
-  border: 1px solid rgba(0, 0, 0, 0.12);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.14);
-  font-size: 13px;
-  box-sizing: border-box;
-}
-.warden-bulkbar button {
-  font-family: inherit;
-  font-size: 13px;
-  line-height: 1.4;
-  border-radius: 8px;
-  padding: 7px 12px;
-  cursor: pointer;
-  border: 1px solid rgba(0, 0, 0, 0.16);
-  background: transparent;
-  color: inherit;
-}
-.warden-bulkbar button:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-.warden-bulk-count {
-  flex: 1 1 auto;
-  text-align: center;
-  color: #4b5563;
-}
-.warden-bulk-del {
-  background: #e24b4a !important;
-  border-color: #e24b4a !important;
-  color: #ffffff !important;
-  font-weight: 500;
-}
 .warden-toast {
   position: fixed;
   left: 50%;
@@ -412,23 +363,12 @@ body.warden-authview-on .warden-authview {
     bottom: 62px;
     padding-bottom: 24px;
   }
-  .warden-bulkbar.warden-bulk-on {
-    bottom: calc(72px + env(safe-area-inset-bottom, 0px));
-  }
   .warden-toast {
     bottom: 140px;
   }
 }
 
 @media (prefers-color-scheme: dark) {
-  .warden-bulkbar.warden-bulk-on {
-    background: #262b33;
-    border-color: rgba(255, 255, 255, 0.14);
-    color: #e5e7eb;
-  }
-  .warden-bulk-count {
-    color: #9ca3af;
-  }
   .warden-selbar-toggle {
     border-color: rgba(255, 255, 255, 0.24) !important;
     color: #9ca3af !important;
