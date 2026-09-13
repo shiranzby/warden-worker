@@ -1,7 +1,12 @@
 name: Build Web Vault (patched)
 
-# 从源码构建"我们自己的"前端产物。与部署解耦 —— 只在改了 webvault/ 时才跑一次。
+# 从源码构建"我们自己的"前端产物。与部署解耦 —— 只在改了前端源码时才需要重跑一次。
 # 设计/迁移方案: docs/webvault-source-migration.md
+#
+# 前端源码来源: shiranzby/vw_web_builds 的 shypwd 分支
+#   = vaultwarden/vw_web_builds 的某个版本分支 + 我们的定制提交
+# 也就是说定制(移动端视口 / 最小主密码长度 / vaultwarden.css)已经在源码里,
+# 构建后**不再**需要任何 sed/python 事后注入, 也不再需要打补丁。
 # 构建配方对齐 dani-garcia/bw_web_builds 的 Dockerfile(node:24 + npm ci + dist:oss:selfhost)
 permissions:
   contents: read
@@ -10,19 +15,14 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "vaultwarden/vw_web_builds 的分支/标签 (如 v2026.6.4)"
+        description: "产物标签 / artifact 名 (如 v2026.8.0)。会与源码里的版本核对, 不一致直接失败"
         required: true
-        default: "v2026.6.4"
-      apply_patches:
-        description: "应用 webvault/patches (关掉 = 做基线, 用于和官方产物对比)"
-        type: boolean
-        default: true
+        default: "v2026.8.0"
 
 env:
-  # P1: 改为我们的 fork。fork 的 shypwd 分支与官方 v2026.8.0 是同一个 commit
-  # (a868ea02ea78b4a0eb8656664cf8d29f9fdab8c2), 所以这一步只换"从哪拉代码",
-  # 产物应与官方源逐字节一致 —— 这就是安全阀。
+  # 我们的前端源码 fork。定制已直接落在源码里(见 fork 的 shypwd 分支)。
   VAULT_REPO: "https://github.com/shiranzby/vw_web_builds.git"
+  VAULT_BRANCH: "shypwd"
   VAULT_FOLDER: "bw_clients"
 
 jobs:
@@ -33,7 +33,9 @@ jobs:
     timeout-minutes: 90
 
     steps:
-      - name: Checkout our repo (need webvault/patches)
+      # 目前这一步只为"将来可能需要仓库内的构建脚本/校验文件"而保留;
+      # 定制搬进 fork 源码后, 构建本身已不再依赖本仓库的任何文件。
+      - name: Checkout our repo
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Set up Node.js
@@ -48,33 +50,32 @@ jobs:
         run: |
           set -euo pipefail
           V="${{ inputs.version }}"
-          echo "VERSION_NO_V=${V#v}" >> "$GITHUB_ENV"   # v2026.6.4 -> 2026.6.4 (vw-version.json 用)
+          echo "VERSION_NO_V=${V#v}" >> "$GITHUB_ENV"   # v2026.8.0 -> 2026.8.0 (vw-version.json 用)
           echo "版本变量: VERSION_NO_V=${V#v}"
 
-      - name: Clone pre-patched Bitwarden client (vaultwarden/vw_web_builds)
+      - name: Clone our frontend fork
         run: |
           set -euo pipefail
-          git clone --depth 1 --branch "${{ inputs.version }}" "${VAULT_REPO}" "${VAULT_FOLDER}"
+          git clone --depth 1 --branch "${VAULT_BRANCH}" "${VAULT_REPO}" "${VAULT_FOLDER}"
+          echo "repo   : ${VAULT_REPO}"
+          echo "branch : ${VAULT_BRANCH}"
           echo "commit : $(git -C "${VAULT_FOLDER}" rev-parse HEAD)"
-          echo "version: $(git -C "${VAULT_FOLDER}" describe --tags --always 2>/dev/null || echo "${{ inputs.version }}")"
 
-      - name: Apply our patches
-        if: ${{ inputs.apply_patches }}
+      # 版本一致性校验。inputs.version 决定 artifact 名, 而部署侧是按 artifact 名反查构建的,
+      # 一旦标错版本, 部署侧就找不到产物(或更糟: 静默用了错版本的产物)。这里用源码里的
+      # apps/web/package.json 兜底 —— 它才是产物真实的 Bitwarden 版本。
+      - name: Verify version matches the source
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          pats=(webvault/patches/*.patch)
-          if [ ${#pats[@]} -eq 0 ]; then
-            echo "ℹ️ webvault/patches/ 为空 —— 基线构建(不含我们的改动)"
-            exit 0
+          SRC_VER="$(node -p "require('./${VAULT_FOLDER}/apps/web/package.json').version")"
+          echo "源码版本 = ${SRC_VER}"
+          echo "输入版本 = ${VERSION_NO_V}"
+          if [ "${SRC_VER}" != "${VERSION_NO_V}" ]; then
+            echo "❌ 版本不一致: 源码是 ${SRC_VER}, 但 inputs.version 是 v${VERSION_NO_V}。" >&2
+            echo "   要么把 inputs.version 改成 v${SRC_VER}, 要么先把 fork 的 ${VAULT_BRANCH} 分支 rebase 到目标版本。" >&2
+            exit 1
           fi
-          for p in "${pats[@]}"; do
-            echo "── 应用 ${p}"
-            git -C "${VAULT_FOLDER}" apply -3 -v "${PWD}/${p}"
-          done
-          echo "✅ 已应用 ${#pats[@]} 个补丁"
-          echo "── 改动文件 ──"
-          git -C "${VAULT_FOLDER}" status --short
+          echo "✅ 版本一致"
 
       - name: Install dependencies
         run: |
@@ -122,12 +123,16 @@ jobs:
           wc -l < .vault-contents.txt
           echo "=== 自带 source map 数(本地读源码靠它) ==="
           grep -c '\.map$' .vault-contents.txt || true
-          echo "=== vw-version.json(应与官方一致: {\"version\":\"${VERSION_NO_V}\"}) ==="
+          echo "=== vw-version.json(应为 {\"version\":\"${VERSION_NO_V}\"}) ==="
           tar -xzOf bw_web_vault.tar.gz web-vault/vw-version.json || echo "❌ 缺少 vw-version.json"
+          # 同样落盘再打印, 避免 pipefail + SIGPIPE
+          tar -xzOf bw_web_vault.tar.gz web-vault/css/vaultwarden.css > .vw.css 2>/dev/null \
+            && { echo "=== css/vaultwarden.css(应由构建自带, 过去靠部署时 cp 补) ==="; head -8 .vw.css; } \
+            || echo "❌ 缺少 css/vaultwarden.css"
 
-      # 断言"补丁真的改变了产物"。补丁打不上去时 git apply 会直接报错退出, 但
-      # "打得上去、却没改到实际执行的代码"是静默失败 —— 这步就是防这个。
-      - name: Verify patch effects in the built artifact
+      # 断言"定制真的进了产物"。以前这里断言的是"补丁打上去了"; 现在定制在源码里,
+      # 所以改为断言源码级定制在**产物**中可见 —— 防止 rebase 上游时把改动弄丢。
+      - name: Verify our customizations are in the built artifact
         run: |
           set -euo pipefail
 
@@ -140,25 +145,44 @@ jobs:
           if [ -z "${MAIN_JS}" ]; then echo "❌ 清单里找不到 app/main.*.js" >&2; exit 1; fi
           tar -xzOf bw_web_vault.tar.gz "${MAIN_JS}" > .main.js
           echo "主密码最小长度常量:"
-          grep -o 'minimumPasswordLength=[0-9]*' .main.js | sort -u
-
-          if [ "${{ inputs.apply_patches }}" != "true" ]; then
-            echo "ℹ️ 基线构建(未打补丁) —— 只输出, 不做断言"
-            exit 0
-          fi
+          grep -o 'minimumPasswordLength=[0-9]*' .main.js | sort -u || true
+          echo "同名的原始常量(必须仍是 8, 官方用它判断策略是否变更过):"
+          grep -o 'originalMinimumPasswordLength=[0-9]*' .main.js | sort -u || true
 
           fail=0
+
+          # 1) 移动端视口  ← apps/web/src/index.html
           case "${VIEWPORT}" in
-            *width=1010*) echo "❌ viewport 仍是 width=1010 —— 02-viewport-mobile.patch 没生效" >&2; fail=1 ;;
-            *width=device-width*) echo "✅ viewport 已自适应" ;;
-            *) echo "❌ viewport 既不是 1010 也不是 device-width, 意外值" >&2; fail=1 ;;
+            *width=1010*)
+              echo "❌ viewport 仍是 width=1010 —— 源码里的定制丢了" >&2; fail=1 ;;
+            *width=device-width*)
+              echo "✅ viewport 自适应 (device-width)" ;;
+            *)
+              echo "❌ viewport 既不是 1010 也不是 device-width, 意外值: ${VIEWPORT}" >&2; fail=1 ;;
           esac
-          grep -q 'minimumPasswordLength=12' .main.js \
-            && { echo "❌ 主密码最小长度仍是 12 —— 01-minimum-password-length.patch 没生效" >&2; fail=1; }
+
+          # 2) 最小主密码长度  ← libs/common/src/platform/misc/utils.ts
+          #    注意源码里另有一个 originalMinimumPasswordLength(大写 M)=8, 这里查的是小写 m 的
+          #    minimumPasswordLength, 不会被它误判成"已改过"。
+          if grep -q 'minimumPasswordLength=12' .main.js; then
+            echo "❌ 主密码最小长度仍是 12 —— 源码里的定制丢了" >&2; fail=1
+          fi
           grep -q 'minimumPasswordLength=8' .main.js \
             || { echo "❌ 产物里没有 minimumPasswordLength=8" >&2; fail=1; }
+
+          # 3) vaultwarden.css  ← apps/web/src/css/ + copy-webpack-plugin 的 patterns
+          #    上游只在 index.html 里加了 <link href="css/vaultwarden.css">, 但 copy-webpack-plugin
+          #    默认不复制 src/css, 所以官方产物从来没有这个文件。我们的 fork 显式声明了复制规则。
+          if tar -xzOf bw_web_vault.tar.gz web-vault/css/vaultwarden.css > .vw.css 2>/dev/null; then
+            grep -q '\.vw-hide' .vw.css \
+              || { echo "❌ css/vaultwarden.css 内容不对(找不到 .vw-hide)" >&2; fail=1; }
+            echo "✅ css/vaultwarden.css 由构建自带 ($(wc -c < .vw.css) bytes)"
+          else
+            echo "❌ 产物缺少 css/vaultwarden.css —— copy-webpack-plugin 的复制规则没生效" >&2; fail=1
+          fi
+
           [ "${fail}" -eq 0 ] || exit 1
-          echo "✅ 两个补丁的效果都已在产物中得到验证"
+          echo "✅ 三项源码级定制均已在实际产物中得到验证"
 
       - name: Disk space after
         if: always()

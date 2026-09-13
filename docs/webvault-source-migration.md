@@ -138,7 +138,10 @@ printf '{"version":"%s"}' "$(git ls-remote --tags --refs --sort='v:refname' \
 - **但为了"零行为变化"，我们的构建必须照样生成它**：值就是 `<我们的 tag 去掉 v>`，
   与上游对钉死版本的行为**完全等价**（见 Phase 1 的构建改动）。
 
-### Phase 1 — 迁移"本来就该在源码里"的改动（低风险）🔄 进行中
+### Phase 1 — 迁移"本来就该在源码里"的改动（低风险）✅ 已完成
+> 结论（2026-09-13）：两处改动已进源码，CI 里的 `sed` / 视口替换步骤已删除，
+> 构建产物经**逐字节验证**确认补丁真实生效（见本节末"产物验证"）。
+> 剩余一步是**切换生产下载源**（部署改用我们自己的 artifact），已配好并带硬校验，等一次显式上线。
 
 这两件事**现在就在 CI 里用 sed/python 硬替换**，属于路径 (a)，搬进源码后天然更干净。
 两处真实出处都已定位（用 `.js.map` 里的内嵌源码查的，不是猜的）：
@@ -203,17 +206,124 @@ sed 是全局替换，改常量同样影响这三处 → 行为完全一致。
 ```diff
 - wget -q "https://github.com/dani-garcia/bw_web_builds/releases/download/${TAG}/bw_web_${TAG}.tar.gz"
 - tar -xzf "bw_web_${TAG}.tar.gz" -C public/
-+ RUN_ID="$(gh run list --repo "${GITHUB_REPOSITORY}" --workflow=build-web-vault.yaml \
-+            --status=success --limit=1 --json databaseId --jq '.[0].databaseId')"
++ # 按 artifact 名确定性反查 run —— 不要用 gh run list --limit=1（见下方"选构建脆弱性"）
++ ART_JSON="$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=bw_web_vault-${TAG}&per_page=100")"
++ RUN_ID="$(printf '%s' "${ART_JSON}" \
++   | jq -r '(.artifacts // []) | map(select(.expired == false))
++            | sort_by(.created_at) | reverse | (.[0].workflow_run.id // empty)')"
 + gh run download "${RUN_ID}" --repo "${GITHUB_REPOSITORY}" \
 +    --name "bw_web_vault-${TAG}" --dir .frontend
 + tar -xzf ".frontend/bw_web_vault.tar.gz" -C public/
 ```
 
-找不到产物时**直接失败**（不会静默退回官方包 —— 那会悄悄部署成没打补丁的版本）。
+**⚠️ 选构建脆弱性（实测踩到，已修）**
+
+最初用的是 `gh run list --workflow=build-web-vault.yaml --status=success --limit=1`。
+实测在 GitHub **索引滞后**的窗口里，它会返回**上一个**成功的构建：
+当时刚跑完补丁构建 `34748607765`(sha `40a9b8b`)，`run list` 却仍把**未打补丁的基线**
+`34747235498`(sha `ed8f883`) 排在第一位。若那一刻部署，就会**静默上线没打补丁的前端**。
+
+修法是两条互补的防线：
+
+| 防线 | 做法 | 性质 |
+|---|---|---|
+| ① 确定性寻址 | `GET /actions/artifacts?name=bw_web_vault-${TAG}`，取最新且 `expired==false` 的一条，用其 `workflow_run.id` | 消掉索引滞后这一类问题 |
+| ② 产物硬校验 | 解包后断言 `index.html` 无 `width=1010`、`main.*.js` 有 `minimumPasswordLength=8` 且无 `=12`、存在 `vw-version.json` | 兜住"选错产物"的**所有**成因 |
+
+②是更根本的一条：不管产物是官方包、旧基线包还是别的什么，只要不是"打过补丁的我们自己构建的产物"
+就立刻 `exit 1`，绝不静默降级。本地已实测：补丁产物 → `PASS(exit 0)`；官方包 → `FAIL(exit 1)`。
+
+找不到产物时同样**直接失败**（不会静默退回官方包 —— 那会悄悄部署成没打补丁的版本）。
 回退是把这段换回 `wget` 一行 + 恢复被删的两个替换步骤。
 
-### Phase 2 — 迁移功能层（主体工作量）
+### Phase 2 — 建立前端 fork，把注入收编进源码 ✅ 已完成（2026-09-13）
+
+Phase 1 用"补丁"解决了 2 处改动，但补丁机制本身有代价：升级时要重新打、冲突在**构建时**才暴露、
+`vaultwarden.css` 还得靠部署时 `cp`。本阶段把前端源码 fork 出来，改动**直接提交进源码**。
+
+**决策：fork `vaultwarden/vw_web_builds` 为独立仓库，而不是把源码 vendoring 进本仓库**
+
+| 依据 | 实测数据 |
+|---|---|
+| fork 零功能损失 | `v2026.8.0` 相对官方 `bitwarden/clients` = **ahead 36 / behind 0**。fork = 完整复制 + 我们的提交 → 36 个提交全部保留 |
+| 反而会丢东西 | 若改去 fork `bitwarden/clients`，会丢 dynamic CSS 支持与 `vw-` class 钩子（→ `vaultwarden.css` 全废），并重新引入非自由代码（法务风险） |
+| 上游永不给移动端适配 | 在 `apps/web` + `libs/common` + `libs/vault` 实测：含 `@media` 的文件**仅 1 个**、断点值 **0 个**。官方是纯桌面设计 ⇒ 移动端适配是**永久性分叉**，等不来 |
+| 不能塞进本仓库 | 塞进去 = 0.9 MB → 约 1.2 GB（约 1300 倍），且丢共同祖先 ⇒ 升级只能肉眼比对，冲突更多 |
+
+**P1（安全阀）：只换"从哪拉代码"，产物应与官方一致**
+
+- git 级：fork 的 `shypwd` 分支与官方 `v2026.8.0` 是**同一个 commit**
+  （`a868ea02ea78b4a0eb8656664cf8d29f9fdab8c2`），`git diff shypwd v2026.8.0` 为空。
+- 产物级：跑两次构建 —— run `34755569036`（官方源）与 run `34755791632`（fork 源），
+  逐文件比 SHA256。结果：**281 个文件里 272 个 hash 完全相同**，两棵树**总字节完全相同**
+  （156,125,341 = 156,125,341）。
+
+  剩下 9 个差异全部可解释，且都**不是源码差异**：
+
+  | 文件 | 差异 | 性质 |
+  |---|---|---|
+  | `app/main.*.js` | 3 处 / 共 32 字节：2 处 `?cache=ljhmfm` vs `?cache=3ttnsl`，1 处 `sourceMappingURL` | 源头是 `webpack.base.js` 的 `CACHE_TAG: Math.random().toString(36).substring(7)` —— **每次构建都随机** |
+  | `connectors/duo-redirect.*.js`、`connectors/webauthn-fallback.*.js` | 各约 160 段单字节差异，全是标识符 `e` ↔ `t` 互换 | Terser 压缩器的变量名分配非确定性。证据：两侧标识符计数**除 `e`/`t` 外逐一相等**，且 `e`+`t` 总数相同（100+67 = 63+104 = 167） |
+  | `index.html`、`duo-redirect-connector.html`、`webauthn-fallback-connector.html` | 仅 `<script src>` 里的文件名 hash | 派生自上面 main.js 的内容 |
+  | 3 个 `.map` | 文件名变了 | 同样派生 |
+
+  ⇒ **P1 通过：零源码差异。** 已用同源再构建一次（run `34756073714`）做对照。
+
+**P2（收编）：三处定制从"部署时注入"改为"源码自带"**
+
+提交进 fork 的 `shypwd` 分支（commit `38fcaee85d`）：
+
+| 定制 | 落点 | 替代了原来的什么 |
+|---|---|---|
+| 移动端视口 | `apps/web/src/index.html` | CI 里 python 替换产物 + 补丁 `02-` |
+| 最小主密码长度 | `libs/common/src/platform/misc/utils.ts` | CI 里 `sed` 扫产物 + 补丁 `01-` |
+| `vaultwarden.css` | 新增 `apps/web/src/css/vaultwarden.css`，并在 `apps/web/webpack.base.js` 的 `copy-webpack-plugin` patterns 里显式声明 `to: "css/vaultwarden.css"` | CI 里的 `cp public/css/vaultwarden.css public/web-vault/css/` |
+
+> `vaultwarden.css` 这处值得单说：上游的 `Add dynamic CSS support` 提交**只改了 `index.html` 两行**
+> （加了 `<link href="css/vaultwarden.css">`），但 `copy-webpack-plugin` **默认不复制 `src/css`**，
+> 所以官方产物里从来没有这个文件 —— 它一直靠部署者自己放。补上这条复制规则后产物即自带。
+
+**派生改动**
+
+- `build-web-vault.yaml`：`VAULT_REPO` → fork，新增 `VAULT_BRANCH: shypwd`；删掉整个
+  "Apply our patches" 步骤与 `apply_patches` 输入；新增**版本一致性校验**（`inputs.version`
+  必须等于源码 `apps/web/package.json` 的 version —— 否则 artifact 名会标错版本，部署侧就查不到）；
+  定制断言从"补丁生效"改为"源码级定制在产物中可见"，并新增 `css/vaultwarden.css` 断言。
+- `push-cloudflare.yaml`：删掉 `cp vaultwarden.css` 步骤；硬校验新增第 4 项
+  （`css/vaultwarden.css` 存在且含 `.vw-hide`）。
+- 退役：`webvault/patches/`（3 个文件）、`webvault/sync-source.sh`、`public/css/vaultwarden.css`。
+  `webvault/README.md` 重写为"定制在哪 + 怎么改"的入口页。
+
+**⚠️ 版本前提**：fork 基于 **`v2026.8.0`**（最新），而线上目前是 **`v2026.6.4`**。
+⇒ 从这个 fork 构建的产物是 8.0，**部署上去就是一次版本跳跃**，所以先做了下面的兼容性评估。
+
+**兼容性评估结论：零后端改动**
+
+| v2026.8.0 的新东西 | 后端是否支持 | 实际效果 |
+|---|---|---|
+| **归档 archive** | ✅ `src/router.rs` 已有一整套：`PUT /api/ciphers/{id}/archive`、`/unarchive`、批量 `PUT /api/ciphers/archive`、`/unarchive`；`archived_at` 列 + sync 响应里的 `archivedDate` | **可用**。前端 `default-cipher-archive.service.ts` 调的正是批量端点，路径完全匹配 |
+| **新条目类型**（bankAccount / driversLicense / passport） | ✅ `deserialize_cipher_type` 接受 **1..=8**（Login/SecureNote/Card/Identity/SshKey/BankAccount/DriversLicense/Passport），`CipherTypeFields` 也已有这些字段 | **默认关闭** —— 受 `PM32009NewItemTypes` flag 控制，默认 `FALSE` 且 `/api/config` 未返回它 |
+| 新批量条 / 快捷复制 / VFO1 术语 | — | 分别受 `PM37785_VaultBatchBar` / `PM40435_QuickCopyIconSetting` / `VFO1Foundation` 控制，**默认全为 FALSE** |
+| `/api/config` 的 `version`（仍返回 `2026.6.0`） | — | **不构成问题**：`checkServerMeetsVersionRequirement$` 在 v2026.8.0 的 web 客户端里**只有定义、零调用**（全仓 `git grep` 确认） |
+
+原理在 `libs/common/src/enums/feature-flag.enum.ts`：后端不返回的 flag 一律落到
+`DefaultFeatureFlagValue`，而它**几乎全是 `FALSE`**。
+⇒ v2026.8.0 的 UI 默认行为 ≈ v2026.6.4，**版本跳跃的界面差异比预期小得多**。
+想开某个新功能（例如新条目类型）只需在 `src/handlers/config.rs` 的 `featureStates` 里加一行，
+**不需要动任何 API**。
+
+**6.4 → 8.0 的模板层实际改动很小**（`git diff origin/v2026.6.4 origin/v2026.8.0` 实测）：
+
+- `vault-items.component.html`：**3 处，全是 `i18n` → `vfo1I18n` 术语替换**，零结构改动
+- `vault-cipher-row.component.html`：3 处，2 处术语 + 1 处 `[showQuickCopyActions]` 传参
+- 整个 `vault-items/` 目录：+138 / −41（含 spec）
+- `apps/web/src` 整体 +174105 行里，**154881 行是 `locales/` 翻译文件**（89%）
+
+**顺带纠正一个早期的误判**：`cdk-virtual-scroll-viewport`、`batchBarService`、动态 th 宽度
+**在 v2026.6.4 就已经存在**，不是 8.0 新引入的。它们确实让 L4 里"4 个 th / `th.tw-w-12`"那套
+DOM 假设很脆，但那是 L4 自身的问题（对着编译产物猜 DOM），与版本跳跃无关。
+
+### Phase 3 — 迁移功能层（主体工作量）
 `custom.js` 现在 **1983 行**、`custom.css` **1279 行**，共 13 个功能点。
 **逐个迁移，每迁一个就从 `custom.js` 里删掉对应段落**（保证任一时刻两处不并存）：
 
@@ -229,7 +339,7 @@ sed 是全局替换，改常量同样影响这三处 → 行为完全一致。
 - **验证**：每迁一项 → `--local` 跑对应 guard 断言 → 部署 → 线上跑一次
 - 退出条件：`custom.js` 里对应功能段落被删除，且 guard 断言仍然全绿
 
-### Phase 3 — 拆掉 L4
+### Phase 4 — 拆掉 L4
 - 删 `custom/`、删 CI 的 "Inject shypwd custom frontend" 步骤
 - `custom/custom.js` 的部分 guard 断言（如"面板被接管为 fixed"）改为对新构建的断言
   （例如"源码里就是 `position: fixed`，不再需要运行期接管"）

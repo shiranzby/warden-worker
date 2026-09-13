@@ -121,30 +121,32 @@ jobs:
           echo "✅ Frontend files extracted to ./public/web-vault"
           ls -la public/web-vault/ | head -20
 
-      # 硬校验: 确保 public/web-vault 真的是"打了补丁的我们自己构建的产物"。
+      # 硬校验: 确保 public/web-vault 真的是"我们自己的定制构建产物"。
       # 这是选构建脆弱性(gh run list 索引滞后)之外的第二道保险 —— 一旦拿到官方包或旧基线包,
-      # 这里会立刻失败, 而不是把没打补丁的前端静默发上线。
+      # 这里会立刻失败, 而不是把没有定制的、甚至旧版本的前端静默发上线。
+      # 下面断言的三项现在都来自**源码**(fork shiranzby/vw_web_builds 的 shypwd 分支),
+      # 运行时不再有任何注入或打补丁动作。
       - name: Verify frontend is our patched build (fail hard)
         run: |
           set -euo pipefail
           IDX="public/web-vault/index.html"
           [ -f "${IDX}" ] || { echo "❌ 缺少 ${IDX}" >&2; exit 1; }
 
-          # 1) 移动端视口补丁 (webvault/patches/02-viewport-mobile.patch)
+          # 1) 移动端视口 (源码: apps/web/src/index.html)
           if grep -q 'width=1010' "${IDX}"; then
-            echo "❌ index.html 仍是 width=1010 —— 视口补丁未生效, 拿到的不是打了补丁的产物。" >&2
+            echo "❌ index.html 仍是 width=1010 —— 拿到的不是定制产物。" >&2
             exit 1
           fi
           grep -q 'width=device-width' "${IDX}" || {
             echo "❌ index.html 找不到 width=device-width。" >&2; exit 1; }
 
-          # 2) 主密码最小长度补丁 (webvault/patches/01-minimum-password-length.patch)
+          # 2) 主密码最小长度 (源码: libs/common/src/platform/misc/utils.ts)
           #    注意: 源码里另有一个 originalMinimumPasswordLength=8(大写 M), 这里查的是小写 m 的
-          #    minimumPasswordLength, 不会被它误判为"已打补丁"。
+          #    minimumPasswordLength, 不会被它误判为"已改过"。
           MAIN="$(find public/web-vault/app -maxdepth 1 -name 'main.*.js' | head -n1)"
           [ -n "${MAIN}" ] || { echo "❌ 找不到 public/web-vault/app/main.*.js" >&2; exit 1; }
           if grep -q 'minimumPasswordLength=12' "${MAIN}"; then
-            echo "❌ ${MAIN} 里仍是 minimumPasswordLength=12 —— 主密码补丁未生效。" >&2
+            echo "❌ ${MAIN} 里仍是 minimumPasswordLength=12。" >&2
             exit 1
           fi
           grep -q 'minimumPasswordLength=8' "${MAIN}" || {
@@ -154,16 +156,25 @@ jobs:
           [ -f public/web-vault/vw-version.json ] || {
             echo "❌ 缺少 web-vault/vw-version.json —— 这不是我们自己的构建产物。" >&2; exit 1; }
 
-          echo "✅ 前端补丁校验通过: viewport=device-width, minimumPasswordLength=8, vw-version.json=$(cat public/web-vault/vw-version.json)"
+          # 4) vaultwarden.css 现在由**构建期**自带(fork 里给它加了 copy-webpack-plugin 规则)。
+          #    以前靠本工作流后面的 cp 补上, 那句 cp 已删除, 改为在这里断言它确实在。
+          CSS="public/web-vault/css/vaultwarden.css"
+          [ -f "${CSS}" ] || {
+            echo "❌ 缺少 ${CSS} —— 前端产物不是含最新定制的构建。" >&2; exit 1; }
+          grep -q '\.vw-hide' "${CSS}" || {
+            echo "❌ ${CSS} 内容不对(找不到 .vw-hide)。" >&2; exit 1; }
 
-      - name: Apply web vault overrides (vaultwarden.css)
-        run: |
-          mkdir -p public/web-vault/css/ && cp public/css/vaultwarden.css public/web-vault/css/
+          echo "✅ 前端定制校验通过: viewport=device-width, minimumPasswordLength=8, css/vaultwarden.css 由构建自带, vw-version.json=$(cat public/web-vault/vw-version.json)"
 
-      # 原先这里有一个 "Patch web vault master password minimum length" 步骤(sed 在压缩产物上
-      # 把 minimumPasswordLength=12 改成 8)。Phase 1 已把它搬进源码:
-      #   webvault/patches/01-minimum-password-length.patch
-      # 视口替换同理: webvault/patches/02-viewport-mobile.patch(见下面的注入步骤)。
+      # 注: 这里原先有一个 "Apply web vault overrides (vaultwarden.css)" 步骤
+      #   (mkdir -p public/web-vault/css/ && cp public/css/vaultwarden.css public/web-vault/css/)。
+      # P2 已把 vaultwarden.css 搬进前端源码(fork 的 apps/web/src/css/vaultwarden.css 加上
+      # copy-webpack-plugin 的显式复制规则), 产物自带该文件, 所以那句 cp 已删除。
+      # 仓库内的 public/css/vaultwarden.css 也随之移除 —— 唯一副本在 fork 里, 避免两份漂移。
+      #
+      # 更早这里还有一个 "Patch web vault master password minimum length"(在压缩产物上 sed)
+      # 与视口替换, 两者都已在 Phase 1 搬进源码(现位于 fork 的
+      # libs/common/src/platform/misc/utils.ts 与 apps/web/src/index.html)。
       - name: Inject shypwd custom frontend (TOTP inline + mobile adaptation)
         run: |
           set -euo pipefail
@@ -172,8 +183,8 @@ jobs:
           cp custom/custom.js   public/web-vault/custom.js
 
           # 2) 修补 index.html: 注入自定义 CSS/JS 引用
-          #    注意: 视口(width=1010 -> device-width)已不在这一步做, 已搬到源码
-          #    webvault/patches/02-viewport-mobile.patch
+          #    注意: 视口(width=1010 -> device-width)已不在这一步做, 现位于 fork 源码的
+          #    apps/web/src/index.html
           python3 - <<'PY'
           p = "public/web-vault/index.html"
           s = open(p, encoding="utf-8").read()
