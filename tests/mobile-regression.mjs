@@ -24,11 +24,9 @@ import path from "node:path";
 const REPO = path.resolve(import.meta.dirname, "..");
 const CUSTOM = path.join(REPO, "custom");
 const OUT = path.join(REPO, "tests", "shots");
-const BASE = "https://shypwd.cc.cd";
 const ACCOUNT = process.env.WARDEN_TEST_MAIL || "shypwd.verify.test@qq.com";
 const PASSWORD = process.env.WARDEN_TEST_PASS || "VerifyTest12345!";
 const CHROME = "C:/Users/Administrator/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe";
-const PROXY = { server: "http://127.0.0.1:7890" };   // github / shypwd 直连不通, 必须走代理
 const UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
 
 const argv = process.argv.slice(2);
@@ -36,6 +34,19 @@ const LOCAL = argv.includes("--local");
 const SHOT = argv.includes("--shot");
 const ONLY = (argv.find(a => a.startsWith("--only=")) || "").split("=")[1] || "";
 const want = (s) => !ONLY || ONLY === s;
+
+/* 被测站点。
+   `--base=https://localhost:8080` 可对着本地 dev server 跑 —— 那是用 fork 源码
+   实时构建出来的产物, 用来在部署之前验证"源码级改动"的效果 (线上仍是旧产物 + L4,
+   所以两者跑出的差异 = 源码迁移目前追平/没追平的地方)。
+   传了 --base 就不要再加 --local, 本地没有 custom.js/css 可注入。 */
+const BASE = (argv.find(a => a.startsWith("--base=")) || "").split("=")[1] || "https://shypwd.cc.cd";
+const BASE_IS_LOCAL = /^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(BASE);
+/* github / shypwd 直连不通, 必须走代理; 但本地地址若也送进代理就连不上了。 */
+const PROXY = {
+  server: "http://127.0.0.1:7890",
+  ...(BASE_IS_LOCAL ? { bypass: "localhost,127.0.0.1" } : {}),
+};
 
 /* ============================ 工具 ============================ */
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
