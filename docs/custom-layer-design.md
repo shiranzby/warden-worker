@@ -132,6 +132,39 @@ tarball → 本仓库 CI 只改一行：下载地址从 `dani-garcia/bw_web_buil
 > 也就是说：**(d) 确实能让 L4 整体消失**，代价是把维护点转移到"补丁要跟着上游版本 rebase"。
 > 这是一个**真选择**，不是"显然该做/不该做"，判据见 §9.6。
 
+### 1.5 旁证：**Vaultwarden 根本没有 L4**（已用 GitHub API 核实）
+
+有人会问"Vaultwarden 是不是也这么干"。查下来结论很干净 —— **它没有 L4，而且它的做法就是我们刚选的路**：
+
+| 仓库 | fork | parent | 语言 | 许可 |
+|---|---|---|---|---|
+| `dani-garcia/vaultwarden` | **false** | – | **Rust** | AGPL-3.0 |
+| `bitwarden/server` | false | – | **C#** | 混合 |
+| `vaultwarden/vw_web_builds` | **true** | **`bitwarden/clients`** | TypeScript | GPL-3.0 |
+| `bitwarden/clients` | false | – | TypeScript | GPL-3.0（Web vault 部分） |
+| `qaz741wsd856/warden-worker`（我们上游） | true | `afoim/warden-worker` | Rust | MIT |
+
+- **后端**：Vaultwarden **根本不碰 Bitwarden 的服务端源码** —— 官方服务端是 **C#**，Vaultwarden 是 **Rust**，
+  `fork=false`。它不是"改源码"，而是**从零重新实现同一套 API**。这比改源码更彻底，自然也不需要 L4。
+- **前端**：Vaultwarden **确实是拉 Bitwarden 源码来改**，但**在源码层改**：
+  `vaultwarden/vw_web_builds` 就是 `bitwarden/clients` 的 fork，每个版本一个分支，改动以 **commit** 形式存在分支上，
+  再由 `dani-garcia/bw_web_builds` 构建成产物。**全程没有运行期补丁层。**
+- **所以 L4 是我们自己独有的发明** —— Vaultwarden、bw_web_builds 都没这么干。
+
+**两个直接含义**：
+
+1. **我们切 (d) 正是回归生态的常规做法**，不是冒险。
+2. 我们的 L4 之所以"越改越重"，是因为它在**一个已经被 Vaultwarden 改过一遍的产物**上再叠一层
+   —— 夹在两层定制之间。上游换版本时我们要同时承受"Vaultwarden 补丁变动"与"Bitwarden 结构变动"。
+   这从另一个方向说明：把定制放到源码层（和 Vaultwarden 同一层）才是可持续的位置。
+
+> 另注：我们的上游链条是三层的 ——
+> `afoim/warden-worker` → `qaz741wsd856/warden-worker` → `shiranzby/warden-worker`（我们）。
+> 而且 **Warden 后端不是 Vaultwarden 的 fork**，是另一个独立 Rust 实现
+> （其 README 原话："While projects like Vaultwarden provide excellent self-hosted solutions,
+> they still require you to manage a server or VPS."）。
+> 也就是说：**我们后端独立，前端却借用了 Vaultwarden 的构建产物** —— 这正是 L4 存在的地形。
+
 ---
 
 ## 2. 分层边界（三层职责，不许越界）
