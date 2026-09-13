@@ -433,8 +433,30 @@ jobs:
             fail=1
           fi
 
+          # 17) 第九批: J15 窄屏下拉面板躲软键盘
+          #     ← libs/components/src/select/select.component.{ts,html}
+          #          (bit-select 是全应用唯一包装 ng-select 的组件, 一处生效)
+          #     判据是**编译产物里的字符串字面量**, 而不是样式:
+          #       · 'visualViewport'            —— 键盘可见区的来源。官方基线 main.js 里 0 次
+          #       · '.ng-dropdown-panel-items'  —— 面板内列表容器(收窄 max-height 用)。
+          #         注意它**同时**出现在 .vw.css 的 M 段里, 所以必须断言在 .main.js 里,
+          #         断言 .vw.css 等于分不出这一批落没落。
+          #     ⚠️ 不要断言 'ng-dropdown-panel' 这种短串: 样式里到处都是, 毫无区分度。
+          for lit in visualViewport '.ng-dropdown-panel-items'; do
+            grep -qF "${lit}" .main.js \
+              || { echo "❌ 产物里找不到第九批的标记 '${lit}'" >&2; fail=1; }
+          done
+          echo "visualViewport 总出现次数: $(grep -o 'visualViewport' .main.js | wc -l)  (官方基线为 0)"
+          #    ★ 负向守卫: L4 那套 ?sel= / localStorage 的调试开关**刻意没有搬**。
+          #      它是"改不动代码"时代的产物(真机上靠 URL 切 3 种模式), 在源码层属于纯负担:
+          #      模式判定会渗进每次定位计算。要调就直接改这一个方法。
+          if grep -qF 'warden-sel-mode' .main.js; then
+            echo "❌ 又写回了 L4 的 ?sel= 调试开关(warden-sel-mode): 源码层不需要它" >&2
+            fail=1
+          fi
+
           [ "${fail}" -eq 0 ] || exit 1
-          echo "✅ 十六项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11 + 第七批 J6/B段 + 第八批 J16/E段)均已在实际产物中得到验证"
+          echo "✅ 十七项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11 + 第七批 J6/B段 + 第八批 J16/E段 + 第九批 J15)均已在实际产物中得到验证"
 
       - name: Disk space after
         if: always()
