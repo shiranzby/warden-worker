@@ -20,6 +20,64 @@
 
 **根因不是"改得不够小心"，而是这层没有架构。** 本文给出架构。
 
+### 1.1 先纠正一个前提：L3 不是黑盒
+
+原稿只说"预编译、不进仓库"，容易让人以为它是不可读的黑盒。**实测并非如此。**
+
+发布包里的 `.js.map` 带着 `sourcesContent`，**内嵌了完整原始源码**：
+
+| 指标 | 实测值 |
+|---|---|
+| `app/main.*.js.map` | 12.25 MB，`sources` 2502 项，`sourcesContent` **887 万字符** |
+| 三个 map 合并后的项目源文件 | **3227 个**（`ts` 2844 + `html` 380） |
+| 覆盖模块 | `common` 745 / `components` 264 / `tools` 164 / `vault` 164 / `importer` 131 … |
+
+也就是说：**不需要反编译，直接读原文。** 例如
+
+- 导入页三个下拉的真实写法 → `libs/importer/src/components/import.component.html`
+  （`formControlName="vaultSelector"` / `"targetSelector"` / `"format"`——**都在同一个 Angular 响应式表单里**）
+- 下拉组件本体 → `libs/components/src/select/select.component.html|ts`
+  （`appendTo="body"`、`outsideClickEvent="mousedown"`、`hostDirectives: [{ directive: BitFormFieldControlDirective, inputs: ["required","id"] }]`）
+- 「必须输入内容」的唯一来源 → `libs/components/src/form-control/form-control-base.directive.ts:53`
+  `get displayError()` 里 `case "required": return this.i18nService.t("inputRequired")`
+
+> 这同时**从源码层面坐实了 v11 事故**：`bit-select` 是响应式表单控件、且宿主绑定了
+> `[attr.required]`。我们往它内部的 search input 写 `readonly`，等于在表单机器运转时
+> 去动它的零件 —— 控件被判为 `required` 未满足，于是弹出 `inputRequired`。
+
+**注意：CI 部署时会 `find -name '*.map' -delete`**（为过 Cloudflare 单文件体积限制），
+所以线上没有 map；**本地那份才是完整的**。要读源码就本地读，别去线上找。
+
+**工具**：`skill: warden-worker-shypwd-deploy/scripts/vault-src.py`
+（`stats` / `list` / `cat` / `grep` / `dump`——`dump` 可把原始源码导成真实文件树，用编辑器看，比 grep 舒服得多）。
+契约提取应从**这里**出发，而不是从压缩代码里猜字符串。
+
+### 1.2 许可证：L3 是 GPL-3.0，不是"不开源"
+
+| 组件 | 许可证 |
+|---|---|
+| **Bitwarden clients（含 Web vault，即 L3）** | **GPL 3.0** |
+| Bitwarden server | AGPL 3.0 |
+| 面向大企业的部分模块（`Commercial.Core`、SSO 等） | Bitwarden License（source-available，非 OSI 开源） |
+
+- 2024-10 曾有"Bitwarden 不再开源"的风波（SDK 被换成自家许可）；**2024-11 官方把 SDK 改回纯 GPLv3**，
+  并调整打包方式，使"只含 GPL/OSI 许可"即可构建整个客户端。
+- `sdk-secrets`（原 `sdk`，Secrets Manager 用）仍是 Bitwarden License，但**客户端不再引用它**。
+- 结论：**我们这个个人密码库场景，L3 完全在 GPL-3.0 之下**，改它、重发它都合法
+  （GPL 的义务是：对外分发修改版时须一并提供源码）。
+
+### 1.3 所以"能不能改 L3"——能，有三条路，我们已经用了一条
+
+| 路径 | 做法 | 现状 | 代价 |
+|---|---|---|---|
+| **(a) 构建期打补丁** | CI 里对压缩产物做定值替换 | **已在用**：`sed 's/minimumPasswordLength=12/=8/'`（`push-cloudflare.yaml`） | 低。但依赖压缩后的字面量，**上游一改就静默失效** |
+| **(b) 运行期改 DOM** | 就是 `custom/` 这一层 | 在用（本文对象） | 中。上游改结构即失效 → 靠 §4 契约探针兜 |
+| **(c) 从源码重建自己的 web-vault** | fork `bitwarden/clients`，自行构建 | **不做**（§8.1） | **高**：要拉整个 nx monorepo + Angular 工具链，且永久跟随上游改动 |
+
+**为什么不选 (c)：不是法律/黑盒限制，纯粹是成本。** 而既然 (a) 已经在用、且 §1.1 让我们
+能读到原文，(a) 的性价比明显上升：**凡是"用 CSS/DOM 很难做干净、但源码里是个明确字面量"的改动，
+优先考虑 (a)**。典型候选见 §9.5。
+
 ---
 
 ## 2. 分层边界（三层职责，不许越界）
@@ -73,22 +131,43 @@
 
 ### 4.1 契约集中声明
 
-所有依赖上游 DOM 的东西收进 `core/contracts.js`，一处声明、多处引用，禁止散落的字符串选择器：
+所有依赖上游 DOM 的东西收进 `core/contracts.js`，一处声明、多处引用，禁止散落的字符串选择器。
+
+**下面这份不是"形状示意"，已在 §1.1 的原始源码里逐条核实**（`vault-src.py cat/grep` 可复核）：
 
 ```js
-// 形状示意，不是最终实现
+// 出处标注格式: <源文件>:<行> —— 契约失效时可直接回源头看
+export const NGSELECT = {
+  // libs/components/src/select/select.component.html —— 宿主
+  opened: "ng-select.ng-select-opened",
+  // src/ng-select/lib/ng-dropdown-panel.component.ts —— 模板里的 <ng-dropdown-panel>
+  panel: ".ng-dropdown-panel",
+  // 同上: <div #scroll role="listbox" class="ng-dropdown-panel-items scroll-host">
+  // ⚠️ 真正滚动的是这个 #scroll 元素, 所以改高度要改它, 不是改外层
+  items: ".ng-dropdown-panel-items",
+  // select.component.html 里写死 appendTo="body" → 面板一定挂在 body 下, 不在宿主里
+  panelHost: "body",
+  // 同上: outsideClickEvent="mousedown"(不是 click) → 我们的"点外面关掉"要用 mousedown 对齐
+  outsideClick: "mousedown",
+};
+
+export const IMPORT_PAGE = {
+  // libs/importer/src/components/import.component.html:16/33/67
+  // ⚠️ 三个下拉都在同一个 Angular 响应式表单里 —— 这是 v11 事故的地形图
+  selects: ["vaultSelector", "targetSelector", "format"],
+  formBound: true,
+};
+
 export const VAULT_TABLE = {
+  // 待用 vault-src.py 从 libs/vault/** 核实后填入(§6 第 2 步之前必须补齐)
   row: "tr[appvaultcipherrow]",
   cells: 5,                       // [复选框][站标][名称][组织][菜单]
   name: "td:nth-child(3) button[bitlink]",
 };
-export const NGSELECT = {
-  opened: "ng-select.ng-select-opened",
-  panel: ".ng-dropdown-panel",
-  panelHost: "body",              // appendTo="body"
-  items: ".ng-dropdown-panel-items",
-};
 ```
+
+**规则**：每条契约必须带出处注释；**没有出处的选择器不许进 `contracts.js`**
+（要么去源码里找到出处，要么承认它只是在猜、并据此降低该 feature 的优先级）。
 
 ### 4.2 启动自检（契约探针）
 
@@ -183,7 +262,10 @@ custom/
 
 ## 8. 明确"不做"的事（避免重复讨论）
 
-1. **不从 Bitwarden 源码构建自己的 web-vault** —— 需要完整 Angular 工程链并长期跟随上游，成本远大于收益。继续用上游预编译产物 + 定制层。
+1. **不从 Bitwarden 源码重建自己的 web-vault**（路径 (c)）——
+   **注意：这不是因为"L3 不开源"或"是黑盒"**（见 §1.1/§1.2：L3 是 GPL-3.0，且原始源码随 map 可读）。
+   纯粹是成本：需要完整 nx monorepo + Angular 工具链，且永久跟随上游。
+   **但 (a) 构建期打补丁是允许且已在用的**（§1.3），别把它和 (c) 一起排除掉。
 2. **不尝试注入 Angular 组件 / 拿组件实例** —— 生产构建下 `__ngContext__` 是数字、`window.ng` 不存在；DI 容器只挂 `attachToGlobal / getKeyService / getEncryptService`（已实测）。
 3. **不改别人拥有的状态** —— 见 §2 铁律。
 4. **不新增 CI 构建步骤** —— 产物入库，CI 保持"只 cp"。
@@ -217,3 +299,18 @@ v12（方案 B：不动控件、只按可见区重定位面板）已部署并验
 线上 `custom.js` / `custom.css` 与仓库源码**字节一致**，线上 guard 回归 **105 PASS / 0 FAIL**。
 真机上请你打开一次下拉确认：键盘弹出时面板是否往**上方**展开、且**不再**弹"必须输入内容"。
 若还不对，用 `?sel=above` 和 `?sel=off` 各试一次，把结果告诉我即可定位。
+
+### 9.5 要不要把"构建期打补丁"(a) 正式纳入手段？
+
+既然 §1.1 能读到原文、且 (a) 已经在用（`minimumPasswordLength`），建议给它一个**明确的使用判据**：
+
+> **当"某个行为在源码里就是一个明确字面量／一个固定默认值"时，用 (a) 打补丁；**
+> **当它涉及 DOM 结构、布局、响应式行为时，才用 (b)。**
+
+(a) 的代价是"上游换版本可能静默失效"，所以每打一处补丁，**必须配一条 CI 断言**
+（`grep` 不到目标字面量就 fail，而不是继续往下跑）。现在的 `minimumPasswordLength` 补丁
+其实**已经有**半条保护（`if count -eq 0` 会 WARNING），但只 WARNING、不 fail，属于"会静默失效"。
+
+**想请你补充**：有没有哪些**具体行为**你希望"根上就改掉"，而不是在界面层绕？
+（例如某个默认值、某个固定文案、某处不希望出现的入口。）
+有的话我按上面的判据评估走 (a) 还是 (b)；没有就按 §6 顺序从 `select-panel` 开始。
