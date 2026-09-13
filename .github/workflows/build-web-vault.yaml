@@ -344,8 +344,52 @@ jobs:
             fail=1
           fi
 
+          # 13) 第七批: J6 行内 TOTP 动态码徽章
+          #     ← apps/web/src/app/vault/components/vault-items/totp-badge.component.{ts,html}
+          #           + vault-cipher-row.component.{ts,html} 里的条件挂载
+          #     与 L4(custom.js §6)的差别全是"消掉运行期机制"换来的:
+          #       · TOTP 算法: L4 自写 Base32/HOTP/TOTP(RFC 4648/4226/6238, ~150 行)
+          #         → 官方 TotpService(底层 Rust SDK 的 generate_totp), 一行自写加密都没有
+          #       · 取密钥: L4 运行期拿 KeyService+EncryptService 解密 login.totp, 且**跳过组织条目**
+          #         → CipherView.login.totp 本来就是明文, 组织条目也能显示
+          #       · 行↔条目匹配: L4 按"名称+用户名"把 DOM 行对上索引
+          #         → 行组件手里就有 cipher, 零匹配
+          #     ⚠️ 不要断言 lock/logout/已经通用的 i18n key, 那些官方基线也有。
+          for lit in vault-totp-badge warden-totp-code warden-totp-chip warden-totp-clip \
+                     warden-totp-ring warden-totp-fill-a warden-totp-fill-b warden-totp-body \
+                     warden-totp-digits warden-totp-sec warden-totp-low warden-totp-copied \
+                     warden-totp-host; do
+            grep -qF "${lit}" .main.js \
+              || { echo "❌ 产物里找不到第七批的标记 '${lit}'" >&2; fail=1; }
+          done
+          echo "warden-totp-code 总出现次数: $(grep -o 'warden-totp-code' .main.js | wc -l)  (官方基线为 0)"
+
+          # 14) 第七批的样式  ← apps/web/src/css/vaultwarden.css(B 段)
+          grep -qF 'B 段. 列表行内的 TOTP 动态码徽章' .vw.css \
+            || { echo "❌ css/vaultwarden.css 里找不到第七批的 B 段标记" >&2; fail=1; }
+          for sel in '.warden-totp-code' '.warden-totp-fill-a' '.warden-totp-fill-b' \
+                     '.warden-totp-sec' '.warden-totp-copied' \
+                     'td.warden-totp-host > vault-totp-badge > .warden-totp-code' \
+                     'table thead th.tw-w-12'; do
+            grep -qF "${sel}" .vw.css \
+              || { echo "❌ B 段里找不到 '${sel}'" >&2; fail=1; }
+          done
+          #    最后一列要留够 84+8+32+12×2 = 148: 少给不是"挤一点", 而是内容从内容盒
+          #    左沿排起向右溢出, 行内 ⋯ 会跑到表格右边界外面(比表头 ⋯ 右 24px)。
+          grep -qF 'width: 148px' .vw.css \
+            || { echo "❌ B 段没有把 ⋯ 那一列撑到 148px, 徽章会溢出格子" >&2; fail=1; }
+          #    ★ 负向守卫: 徽章必须**脱离行盒**定位, 不能退回 L4 的 ::before 撑杆写法。
+          #      撑杆(或徽章留在行盒里的任何一种写法)会改变行盒基线, 把与基线对齐的 ⋯
+          #      顶高(实测撑杆 8.91px / 仅去掉撑杆 6.58px), 于是"带徽章的行"和
+          #      "不带徽章的行"的 ⋯ 不在同一条竖线上 —— L4 为此写了 alignHeaderDots()
+          #      每 2.4s 追着量。绝对定位是唯一能两全的写法。
+          if grep -qE 'warden-totp-host::before' .vw.css; then
+            echo "❌ 徽章又用回了 ::before 撑杆写法: 会把行内 ⋯ 的基线挤走" >&2
+            fail=1
+          fi
+
           [ "${fail}" -eq 0 ] || exit 1
-          echo "✅ 十二项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11)均已在实际产物中得到验证"
+          echo "✅ 十四项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11 + 第七批 J6/B段)均已在实际产物中得到验证"
 
       - name: Disk space after
         if: always()

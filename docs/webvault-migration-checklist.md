@@ -31,8 +31,8 @@
 | **P2** 收编注入 | 视口 + 密码下限 + `vaultwarden.css` 进源码；`webvault/patches/` 退役 | ✅ |
 | **P3** 本地热重载 | `https://localhost:8080`，改源码即时生效（已实测逐字节验证） | ✅ |
 | **P4** 版本兼容评估 | 结论：**零后端改动**，新功能默认全关，UI 行为 ≈ 6.4 | ✅ |
-| **P5** 迁样式类改动 | A/B/C/E/F/G/H/I/J/J2/J3/K/L/M 共 14 段 / 1248 行 | 🟡 **H+K+M 已落地**（210 行）、**F 主部已落地**（102 行）、**G 段随 J17 落地**（81 行）、**C 段筛选抽屉半边随 J9 落地**（39 行）、**A 段 + C 段「名称」表头工具行随 J7 落地**（150 行，见 §3 第五批）、**L 整体淘汰**（J12 改走官方对话框） |
-| **P6** 迁结构类改动 | TOTP 徽章 / 表头工具行 / 头像卡片 / 验证码页 / 底部标签栏 等 | 🟡 **已落地：J12「文件夹」+ J8 网格 + J17 底部标签栏 + J9 筛选抽屉 + J14 选择模式（＋J7 的「选择」半边）**；其余待做：J7「新增」半边 + I 段、J6、J10/J11、J13、J16、J15 |
+| **P5** 迁样式类改动 | A/B/C/E/F/G/H/I/J/J2/J3/K/L/M 共 14 段 / 1248 行 | 🟡 **H+K+M 已落地**（210 行）、**F 主部 + F5 已落地**、**G 段随 J17 落地**（81 行）、**C 段筛选抽屉半边随 J9 落地**（39 行）、**A 段 + C 段「名称」表头工具行随 J7 落地**（150 行，见 §3 第五批）、**I/J/J2/J3 随第六批落地**（见 §3 第六批）、**L 整体淘汰**（J12 改走官方对话框） |
+| **P6** 迁结构类改动 | TOTP 徽章 / 表头工具行 / 头像卡片 / 验证码页 / 底部标签栏 等 | 🟡 **已落地：J12 + J8 + J17 + J9 + J14 + J7（「选择」半边）+ J10 账户卡片 + J11 二级导航 + J13 头像上传 + 4b/I 段 + J6 行内 TOTP 徽章/B 段**；其余待做：J16（验证码页）、J15（ng-select 动态部分） |
 | **P7** 拆 L4 + 切线上 | 删 `custom/`、删 CI 注入步骤、独立预览环境验收后切换 | ⬜ |
 
 ---
@@ -46,14 +46,14 @@
 | J3 | 通过 DI 容器解密 sync 密文 | §3 (263–289) | 27 | **全删** —— 用官方 `CryptoService` / `CipherService` | ⬜ |
 | J4 | 建立 TOTP 索引 | §4 (290–352) | 63 | **全删** —— 官方 `CipherView` 直接带 `totp` 字段 | ⬜ |
 | J5 | 按 DOM 认行（MutationObserver + 400ms 防抖） | §5 (353–394) | 42 | **全删** —— Angular 数据绑定替代 | ⬜ |
-| **J6** | **行内 TOTP 动码徽章**（圆角矩形 + 下沿进度条 + 中间挖空显秒数，<5s 转红） | §6 (395–627) | 233 | 用官方 `BitTotpCountdownComponent`（`libs/vault/src/components/totp-countdown/`）改视觉形态：环形→下边缘线性、阈值 7s→5s | ⬜ |
-| **J7** | **表头工具行**：「选择」+「新增」并入"名称"那一行 | §7 (628–649) | 22 | `vault-items.component.html` 的表头 | ⬜ |
+| **J6** | **行内 TOTP 动码徽章**（圆角矩形 + 下沿进度条 + 中间挖空显秒数，<5s 转红） | §6 (395–627) | 233 | ✅ 没用 `BitTotpCountdownComponent`（它的模板只画秒数 + 环形，**不渲染码**，返回值靠 `sendCopyCode` 事件吐出来，拿不到 period/low）—— 改为自建小组件注入官方 `TotpService.getCode$()`，自渲染码 + 下沿线性进度条，阈值 5s。见 §3 第七批 | ✅ `3b2ef3a163` |
+| **J7** | **表头工具行**：「选择」+「新增」并入"名称"那一行 | §7 (628–649) | 22 | `vault-items.component.html` 的表头 + `css/vaultwarden.css`（I 段） | 🟡 **「选择」半边** ✅ `6528392574`；**「新增」半边**改由 I 段以**不同方式**落地（`3457e7ccb7`，见 §3 第六批 ②）：不再把菜单搬进表格行，而是让窄屏页头塌成只含「新增」的一条工具行 |
 | J8 | 外层网格 `relaxGrid()`（把 `minmax(384px,1fr)` 换成 `minmax(0,1fr)`） | §7.0 (650–769) | 120 | **改 SCSS 源码** —— 不再需要运行期替换 | ✅ `8d4292dee2` |
 | J9 | **窄屏筛选抽屉**（11 个 chip 收成按钮 + 竖排面板） | §7.1 (770–840) | 71 | 官方 8.0 新增的 `filter-menu` 组件（`libs/vault/src`，+1253 行）**未采用** → 改在官方 `vault-filter` 组件内加展开态 + 收起 CSS（见 §3 的 ④） | ✅ `2a8039eb24` |
-| J10 | 窄屏「设置」页账户卡片 | §7.2 (841–868) | 28 | 设置页组件 | ⬜ |
-| J11 | 窄屏二级导航 chips（设置页 / 工具页） | §7.3 (869–901) | 33 | 官方侧栏组件 | ⬜ |
+| J10 | 窄屏「设置」页账户卡片 | §7.2 (841–868) | 28 | 新建 `layouts/account-card.component`（挂在 `user-layout`，`/settings*` 显示） | ✅ `3457e7ccb7` —— 锁定/注销改调官方 `LockService`/`LogoutService`，取 token 改走官方 `TokenService`（不再劫持 fetch），标记与 L4 一致 |
+| J11 | 窄屏二级导航 chips（设置页 / 工具页） | §7.3 (869–901) | 33 | 新建 `layouts/mobile-sub-nav.component`（挂在 `user-layout` 的 router-outlet 之前） | ✅ `3457e7ccb7` —— `routerLink` + 路由派生条目，标记（`#warden-subnav` / `a[data-href]` / `.warden-subnav-on`）与 L4 一致，G5 不需改 |
 | **J12** | **行内三点菜单补「文件夹」**（原「添加到文件夹」；v8 起改名并移到「收藏」之下、「编辑」之上） | §7.4 (902–1240) | 339 | `vault-cipher-row.component.html` 的 `bitMenuItem` 列表 | ✅ `8d4292dee2` |
-| **J13** | **头像：点自己头像直接换图（真实上传，跨端同步）** | §7.5 (1241–1524) | 284 | 官方 `bit-avatar` + **后端已就绪**（`PUT\|DELETE /api/accounts/avatar/image`） | ⬜ |
+| **J13** | **头像：点自己头像直接换图（真实上传，跨端同步）** | §7.5 (1241–1524) | 284 | **随 J10 的账户卡片落地**：点卡片头像 → 居中裁方 → 128px jpeg → localStorage + `PUT /api/accounts/avatar/image`（后端在 warden-worker，非上游功能） | ✅ `3457e7ccb7` —— 运行时实测 PUT 返回 200、`body.warden-avatar-on` + `--warden-avatar` 生效、localStorage 落地 |
 | **J14** | **移动端选择模式 / 批量操作**（v10 起不自建底部条，复用应用自带） | §8 (1525–1582) | 58 | 与 J7 同处表头；官方 8.0 有 `batchBarService` | ✅ `6528392574` —— 胶囊驱动官方 `SelectionModel`，退出时 `selection.clear()`；官方批量条受 `PM37785` 开关控制而**我们的后端没开**（线上 `/api/config` 的 featureStates 无此项），与 L4 §8 的最终形态一致（不自建底部条） |
 | J15 | 移动端 ng-select 面板躲软键盘（v12，按 `visualViewport` 动态算） | §8.5 (1583–1659) | 77 | 官方 `bit-select`；样式侧已在 **M 段**落地，动态部分待迁 | ⬜ |
 | **J16** | **独立「验证码」页**（复刻 Bitwarden Authenticator 卡片列表） | §9 (1660–1768) | 109 | 新路由 + 官方 totp 组件 | ⬜ |
@@ -74,16 +74,16 @@
 | 段 | 内容 | 行数 | 依赖的 `warden-*` | 能否独立搬 | 状态 |
 |---|---|---|---|---|---|
 | A | 塌缩「复选框列」与「站标列」 | 60 | `warden-selecting`（状态类） | 需 JS | ✅ **已落地**（随 J7/J14，`6528392574`）—— 但**只作用于窄屏**（有意差异，见 §3 第五批 ③） |
-| B | 行内 TOTP 徽章 | 30 | `warden-totp-host` | 需 J6 | ⬜ |
-| C | 「名称」表头工具行 + 窄屏筛选抽屉 | 157 | 12 种 | 需 J7/J9 | 🟡 **筛选抽屉半边**随 J9 落地（独立「J9 段」39 行）；**「名称」表头工具行的「选择」半边**随 J7 落地（`6528392574`）；「新增」并入待 I 段 |
+| B | 行内 TOTP 徽章 | 30 | `warden-totp-host` | — | ✅ `3b2ef3a163`（改绝对定位, 见 §3 第七批 ③坑 2） |
+| C | 「名称」表头工具行 + 窄屏筛选抽屉 | 157 | 12 种 | 需 J7/J9 | 🟡 **筛选抽屉半边**随 J9 落地（独立「J9 段」39 行）；**「名称」表头工具行的「选择」半边**随 J7 落地（`6528392574`）；**「新增」不再并入该行** —— 改由 I 段让窄屏页头塌成只含「新增」的一条工具行（`3457e7ccb7`，有意差异见 §3 第六批 ②） |
 | E | 独立「验证码」页 | 138 | 17 种 | 需 J16 | ⬜ |
-| F | **移动端（≤768px）布局** | 188 | `warden-filter-open` 等 4 种 | 部分需 JS | 🟡 **F1/F2/F3 已落地**（102 行）；「隐藏 side-nav」的阻塞已解除（J17 就位）—— 待与 J9 一同收尾 |
+| F | **移动端（≤768px）布局** | 188 | `warden-filter-open` 等 4 种 | 部分需 JS | ✅ **F1/F2/F3/F5 已落地**（F5「隐藏 side-nav」随第六批落地，`3457e7ccb7`）—— 只差 L4 里那三条死代码（刻意不搬，见 F 段注释） |
 | G | 底部标签栏样式 | 81 | `warden-tabbar` 等 | 需 J17 | ✅ **已落地**（随 J17 同批迁入，去注释后与 L4 **逐字节相同**） |
 | **H** | **窄屏留白压缩（全站变紧凑）** | 90 | 仅 H7 一条 | ✅ **可独立搬** | ✅ **已落地** |
-| I | 窄屏去重复页头 + 账户动作挪设置页 | 141 | 11 种 | 需 J10/J11 | ⬜ |
-| J | 窄屏二级导航 chips | 69 | `warden-subnav` | 需 J11 | ⬜ |
-| J2 | 有二级导航时压掉大标题页头 | 22 | `warden-has-subnav` | 需 J11 | ⬜ |
-| J3 | 藏掉应用自带「64px 大头像 + 自定义」行 | 23 | 2 种 | 需 J13 | ⬜ |
+| I | 窄屏去重复页头 + 账户动作挪设置页 | 141 | 11 种 | 需 J10/J11 | ✅ **已落地**（`3457e7ccb7`）—— 判定条件从 L4 的 body 类改成 `main:has(#warden-acctcard)` / `:has(#warden-subnav)`，纯 CSS 首帧生效；11 种 `warden-*` 依赖归零 |
+| J | 窄屏二级导航 chips | 69 | `warden-subnav` | 需 J11 | ✅ **已落地**（`3457e7ccb7`，标记不变） |
+| J2 | 有二级导航时压掉大标题页头 | 22 | `warden-has-subnav` | 需 J11 | ✅ **已落地**（`3457e7ccb7`）—— 条件改成 `main#main-content:has(#warden-subnav)`，不再需要 `warden-has-subnav` body 类 |
+| J3 | 藏掉应用自带「64px 大头像 + 自定义」行 | 23 | 2 种 | 需 J13 | ✅ **已落地**（`3457e7ccb7`）—— 改为 `main:has(#warden-acctcard) div:has(> dynamic-avatar)`；L4 的 `.warden-app-avatar-row` JS 兜底路径**整体删除**（G2 的 0 帧要求因此天然成立） |
 | **K** | **窄屏对话框压缩（新增/编辑条目、Send）** | 96 | **无** | ✅ **可独立搬** | ✅ **已落地** |
 | L | 行内「文件夹」浮层 | 128 | 9 种 | 需 J12 | ✅ **整体淘汰**（J12 改用官方 `bulk-move-dialog`，自建浮层/遮罩/窄屏抽屉全不需要） |
 | **M** | **ng-select 下拉加固** | 25 | **无** | ✅ **可独立搬** | ✅ **已落地** |
@@ -514,6 +514,203 @@ Verify 步全绿，新增那行输出 `warden-select-toggle 总出现次数: 1  
 
 ---
 
+### 第六批已落地：4b + 5b + I 段 + J10 + J11 + J13（fork 提交 `3457e7ccb7`）
+
+这一批的指导原则变了：**不再照抄 L4 的实现方式，只要求「功能等价」**（用户明确要求
+"你可以以不同的方案实现相同的效果试试，因为确实有一些是冗余的"）。于是逐项问
+"L4 为什么要这么绕"，能消解的消解，消解不掉的再照搬。
+
+#### ① 三处运行期机制 → 源码组件 / 官方服务
+
+| L4 的做法 | 源码层做法 | 少了什么 |
+|---|---|---|
+| J11: custom.js 注入 `<nav id=warden-subnav>`；点击 `preventDefault()` + `location.hash = ...`；"乐观点亮"再靠 MutationObserver 纠正；用 `data-set` 比对在"设置↔工具"间**整套重建**（v6 的"残留条目"bug 就是这套的） | `mobile-sub-nav.component`：`routerLink` + 由 URL 派生条目，`@for` 自动增删 | 点击拦截、乐观高亮、重建记账、`data-set` |
+| J10: custom.js 注入卡片；锁定/注销靠"点开官方 account-menu，再按中文文案找到菜单项替它 click"，还得先给浮层挂 `warden-ghost-menu` 隐身类（因为头像被藏后浮层会锚在 (0,0) 闪一下） | `inject(LockService).lock(userId)` / `LogoutService.logout(userId)` | 文案匹配、浮层隐身 hack、点击时序 |
+| J13: custom.js 建 `<input type=file>`；token 靠劫持 `window.fetch` + `XMLHttpRequest.prototype.open` **偷 Authorization 头** | 模板里的 `viewChild` 文件选择器 + `TokenService.getAccessToken(userId)` | 两个全局原型劫持 |
+
+> ⚠️ 有意保留的一处 L4 契约：头像地址仍写在 `body` 的 `--warden-avatar` 变量 +
+> `warden-avatar-on` 类上 —— 因为 `tests/mobile-regression.mjs` 的 G4 直接断言
+> `document.body.classList`。改 CSS 消费点会连带改回归脚本，收益为负。
+
+#### ② 「新增」半边（4b）：**刻意与 L4 不同**
+
+L4 把整个 `app-vault-header` 藏掉，再由 `dockNewBtn()` 在运行期把官方
+`vault-new-cipher-menu` 元素 `appendChild` 进表格「名称」表头的工具行
+（`#warden-headbar` 里的 `.warden-headslot`），同时记下落点的**父节点 + 后继节点**，
+离开窄屏或离开列表页时再拼回去 —— 约 35 行 JS 只为搬一个 DOM 节点，而且每次
+Angular 重渲染都要重新判定"落点还在不在"。
+
+这里改成：**页头不整个藏**，只收掉左边那一列（面包屑 + `h1`，含 `title-suffix` 的集合
+编辑菜单）与产品切换宫格，页头塌成一条只含「新增」的紧凑工具行。
+
+- 官方组件保持**单实例**、零 DOM 搬运、零 JS 记账，官方内联菜单
+  （登录/支付卡/身份/笔记/SSH 密钥/文件夹）原样保留；
+- 实测那条工具行高 **56px**，也就是说比 L4 的观感**多占约一行**；
+- 要回到"和列头同一行"需要把菜单搬进 `.warden-headbar`，那会引入 `vault-items` 的
+  一串输入/输出（`canCreateCipher` / `canCreateFolder` / `disabled` + 三个输出事件都挂在
+  页头组件上）—— 为省一行高度换一堆样板，不划算。
+  若你更在意那一行高度，这是一处**可以单独回退**的差异。
+
+#### ③ 三处"藏着东西"的规则：判定条件从 body 类改成 `:has()`
+
+L4 用 `body.warden-has-subnav` / `body.warden-has-account-card` 驱动 I 段、J2、J3，
+而那三个类由 custom.js 在 Angular 渲染**之前**同步挂上（否则会"先画出来再消失"）。
+源码层不再需要这套时序保障 —— 条件直接写成结构判定：
+
+| 段 | L4 条件 | 现在 | 为什么更好 |
+|---|---|---|---|
+| I | `body.warden-has-account-card` / 路由判定 | `main#main-content app-vault-header ...` 直接写进 `@media` | 无 body 类 |
+| J2 | `body.warden-has-subnav` | `main#main-content:has(#warden-subnav)` | chips 只在工具/设置分区渲染 ⇒ 判定完全等价；`:has()` 首帧即生效，天然无闪烁 |
+| J3 | `body.warden-has-account-card` + JS 加 `.warden-app-avatar-row` 兜底 | `main#main-content:has(#warden-acctcard) div:has(> dynamic-avatar)` | **兜底路径整体删除**：G2 的"90 帧采样里 0 帧可见"因此天然成立 |
+
+#### ④ ⚠️ 踩坑：CSS 注释里写了 `canCreate*/disabled`，把整段规则吃掉了
+
+`canCreate*/disabled` 里的 `*/` **提前关闭了 `/* ... */` 注释**，注释剩余文字被当作
+CSS 选择器解析失败，浏览器于是**跳过了紧随其后的整个 `@media` 块** —— 表现为
+I 段的 4 条规则全部不生效（`app-account-menu` 仍是 `inline`），而它后面的 J/J2/J3/J10
+全部正常。
+
+- 现象很有误导性：同一批追加的规则**有的生效有的不生效**，看起来像选择器写错；
+- 本机诊断路径：`document.styleSheets` 里逐条 dump 顶层规则，
+  发现解析后只有 36 条顶层规则、I 段的 `@media` 整块不存在；
+- 定位手法（**建议固化成检查习惯**）：
+  ```python
+  s = open("vaultwarden.css", encoding="utf-8").read()
+  assert s.count("/*") == s.count("*/")   # 76/77 就是这么发现的
+  assert s.count("{") == s.count("}")
+  ```
+- 结论：**注释里不要出现 `*/`**（含 `A*/B` 这种"带星号配斜杠"的写法）。
+
+#### ⑤ 验证：运行时 42 条 + 产物区分度 21 条
+
+- 运行时（`.deploycheck/verify-batch6.mjs`，dev server + 真实后端）：**42/42 通过**。
+  判据是几何与计算样式，不是"class 写上去了"：
+  - 窄屏页头：`app-vault-header` 不是 `display:none`；左列/宫格/头像 `none`；
+    「新增」按钮 box `[281,8,84,40]`；工具行高 56px；**点它真的拉出 6 项菜单**；
+  - 5b：`bit-side-nav` 为 `none`，且**主列左边界回到 0px**（守"grid 轨道没跟着塌"）、
+    底栏仍 6 项；
+  - J11：chips 在 `main#main-content` 内、settings 5 项 / tools 3 项、等宽
+    `[66,66,66,66,66]`；**点「安全」真的换路由**且高亮跟着走；三级 tabs 未被一起藏掉；
+  - J10/J13：名称在头像右侧同一行；`#warden-acctcard` 有隐藏 file input；
+    **点头像拉起 filechooser、PUT `/api/accounts/avatar/image` 返回 200**、
+    `body.warden-avatar-on` + `background-image: url("data:image/jpeg;base64,...")`、
+    localStorage 落地；
+  - 桌面 1280：卡片仍渲染（同一套排布）、侧栏**未**被隐藏、chips 不可见、
+    页头头像行隐藏、无横向溢出。
+- 产物区分度（`.deploycheck/probe-batch6-assert.mjs`）：**21/21**
+  "我们的产物 HIT / 官方基线 MISS"（10 个 JS 字面量 + 7 个 CSS 标记/选择器 + 4 条选择器
+  + **2 条负向守卫**）。
+  > 负向守卫在这条腿上"有区分度"是因为官方基线**根本没有** `css/vaultwarden.css`
+  > （只有官方 `styles.*.css`），`!!t.css` 短路为 false。它真正的不变量语义由 CI 对
+  > **我们自己的产物** `grep -qE '^app-side-nav,'`（须不命中）来强制 —— 见下条。
+- CI 断言升级为 12 组（`b76e994`）：新增组 11（JS 10 字面量）、组 12（CSS 标记 + 选择器
+  + 2 条负向守卫）。两条负向守卫针对的是"**藏东西的规则漏出媒体查询**"这一类风险：
+  F5 漏出 ⇒ 桌面端丢侧边导航；I 段漏出 ⇒ 桌面端丢账户入口。
+- **三向区分度**（`.deploycheck/probe-batch6-thirdleg.mjs`，拿**上一轮产物** `p1/p11`
+  复筛，`exit 0`）：
+
+  | 组 | 条数 | 在 p11 上的期望 | 实测 |
+  |---|---|---|---|
+  | ① 旧断言（F/G/J7/J8/J9/J12/J14/J17，p11 已迁） | 14 | 全 HIT | **14/14 HIT** |
+  | ② 第六批正向候选（JS 字面量 + CSS 标记） | 19 | 全 MISS | **19/19 MISS** |
+  | ③ 负向守卫（顶层无泄漏） | 2 | 全 PASS | **2/2 PASS** |
+
+  > ① 证明 p11 是"除第六批外都齐了"的有效对照，不是残废产物；
+  > ② 证明这些断言确实**在等第六批到货**（我们 HIT / 官方 MISS 不是巧合）；
+  > ③ 是**脚本逻辑修正**：负向守卫是"全局不变量"（在 p11 与我们的产物上都该成立），
+  > 不是"第六批特性"，原先混进 ② 被 `if (hit) bad++` 误判 —— 单列成组后语义才正确。
+
+---
+
+### 第七批已落地：J6 + B 段（fork 提交 `3b2ef3a163`）
+
+行内 TOTP 动态码徽章。这一批把 L4 里**唯一一处自写密码学**消掉了。
+
+#### ① 五处运行期机制 → 官方服务 / 纯 CSS
+
+| 维度 | L4 的做法 | 源码层做法 | 少了什么 |
+|---|---|---|---|
+| TOTP 算法 | 自写 Base32 / HOTP / TOTP（RFC 4648 / 4226 / 6238，约 150 行 WebCrypto） | 官方 `TotpService.getCode$(uri)`，底层是 Rust SDK 的 `generate_totp` | 150 行加密代码 + 自测负担 |
+| 取密钥 | 运行期拿 `KeyService` + `EncryptService` 解密 `login.totp`；**跳过组织条目**（`c.key` 要另派生密钥） | `CipherView.login.totp` 本来就是明文 | 两处服务注入、组织条目显示不全的缺陷 |
+| 行 ↔ 条目匹配 | 按"名称 + 用户名"把 DOM 行对上索引，重名要靠 fallback | 行组件手里就有 `cipher` | 整套匹配逻辑 |
+| 进度条宽度 | 量 `offsetWidth` 换算成 px 写内联样式（含"缺口不计入时长"的补偿） | 纯 CSS `calc()`，**左右两段** | `offsetWidth` 读取与缓存 |
+| 复制 | 手写 `navigator.clipboard` + `execCommand` 兜底 | 官方 `PlatformUtilsService.copyToClipboard` | 手写兜底分支 |
+
+> ⚠️ 有意保留的一处差异：点击复制**不做 premium 门禁**。官方
+> `CopyCipherFieldService.copy(..., "totp")` 会先过 `totpAllowed()`
+> （`organizationUseTotp || hasPremiumFromAnySource`），非会员点下去是**静默失败**；
+> 而 L4 的语义是"徽章常显、随时可复制"。所以这里只借官方的剪贴板原语。
+
+#### ② 进度条：一段 + JS 补 20px → 两段纯 CSS
+
+L4 是**一条** fill，宽度 `w`，被 `clip-path` 在中间挖掉 20px；为了让"可见长度"对上
+剩余时间，它得在跨过中点的一瞬间把宽度 +20px（`w = lit <= track/2 ? lit : lit + GAP`）。
+
+这一版拆成左右两段（`fill-a` / `fill-b`），各自 `calc(剩余比例 × (100% - 20px))`：
+
+| 剩余比例 | 左段 | 右段 | 右端位置 |
+|---|---|---|---|
+| ≤ 0.5 | `p × track` | 0 | `p × track` |
+| > 0.5 | `track/2` | `(p − 0.5) × track` | `50% + 10px + (p−0.5) × track` |
+
+代数上右端位置恒等于 L4 的 `p × track + 20`，**逐像素等价**；但跨过缺口时右端是
+连续推进的，不存在 L4 那个 +20px 的"跳一下"。
+
+#### ③ 🔴 两个坑（都写进 B 段注释了）
+
+**坑 1 — 列宽少给 24px 不是"挤一点"，是溢出到表格外。**
+
+⋯ 那一列官方是 `tw-w-12`（48px），装不下 `84(徽章) + 8(间距) + 32(⋯)`。
+`bit-table` 是 `layout=fixed`，而 td 又是 `text-align:right` + `white-space:nowrap`：
+内容比内容盒宽时，整行**从内容盒左沿排起、向右溢出**，于是行内 ⋯ 跑到表格右边界
+**外面 12px**，比表头 ⋯ 右 24px。⇒ 列宽给到 **148**（`12 + 84 + 8 + 32 + 12`），
+两侧天然同列。L4 是用 `alignHeaderDots()` 每 2.4s 量一次去追这个差。
+
+**坑 2 — 徽章必须脱离行盒，否则会把 ⋯ 的基线挤走。**
+
+| 写法 | 徽章 vs 格心 | 带徽章行的 ⋯ vs 对照行 |
+|---|---|---|
+| L4：`::before { height:100%; vertical-align:middle }` 撑杆 | **Δ = 0** | 上移 **8.91px** |
+| 只删掉撑杆（徽章留在行盒） | 偏低 2.33px | 上移 **6.58px** |
+| **绝对定位（本版）** | **Δ = 0** | **Δ = 0.25px** |
+
+根因：撑杆与 46px 的徽章都会改变**行盒基线**，与基线对齐的 ⋯ 被一起带走。
+只有让徽章脱离行盒，⋯ 的基线才一分不动 —— 整列点永远是一条直线。
+（对照行本来就偏高 2.75px，那是官方基线对齐的固有行为，量测已确认。）
+
+> ⚠️ 选择器不能写 `td.warden-totp-host > .warden-totp-code`：徽章外面还套着
+> `<vault-totp-badge>` 宿主元素，子选择器**命中不到**（踩过一次：结果 position 仍是
+> `relative`，徽章被行盒基线带偏 2.33px）。要写
+> `td.warden-totp-host > vault-totp-badge > .warden-totp-code`。
+
+#### ④ 验证
+
+**运行时**（`.deploycheck/verify-batch7.mjs`，dev server + 真实后端，**42/42 通过**）：
+
+判据是几何 / 计算样式 / **密码学正确性**：
+
+- **码的值**：播种时给测试条目写的密钥是 RFC 4226 附录 D 的公开向量
+  `JBSWY3DPEHPK3PXP`，脚本自己按 RFC 6238 算出期望码再与页面显示值比对
+  —— 断言的是"算对了"，不是"像六位数"。脚本自带自检：三条官方向量
+  （T=59 / 1111111109 / 1234567890）必须先对上，否则拒绝执行。
+- **进度条与秒数自洽**：由 `(左段+右段)/轨道` 反推周期，中位数 **30.006**（合法周期是 30）。
+- **配色由数据驱动**：30 帧采样里 `sec ≤ 5 ⇔ #fdecec`、其余 `⇔ #eef3ff`，且两种都出现过。
+- **对照行**：不带验证码的「Plain Control」**没有**徽章、也没有 `warden-totp-host` 类。
+- **点击复制**：拦 `document.execCommand` 取到实际写入剪贴板的文本 = 6 位纯数字，
+  且与点击前的码一致；`.warden-totp-copied` 态与「已复制」文案在 ~1.5s 内自行退场。
+- **⋯ 不被挤走**：带徽章行与对照行的 ⋯ 纵向差 **0.25px**；且不越出表格右边界。
+- 窄屏：徽章收窄到 78px、字号 12.5px、仍居中、无横向溢出、底栏仍 6 项。
+
+> ⚠️ 测量坑：`transition: width .9s linear` 会让 `getBoundingClientRect` 读到动画中间值。
+> 测量前必须关掉它，而 **devServer 的 CSP 不允许 `addStyleTag`**（`style-src` 白名单 + hash），
+> 只能用 CSSOM：`el.style.transition = "none"`（程序化改 style 不受 `style-src` 管辖）。
+
+**CI 断言升级为 14 组**：新增组 13（JS 13 个 `warden-totp-*` 字面量）、
+组 14（B 段标记 + 6 条选择器 + `width: 148px` + **1 条负向守卫**）。这条负向守卫
+`grep -qE 'warden-totp-host::before'` 必须不命中 —— 守的就是坑 2 里那个会挤走 ⋯ 的撑杆写法。
+
+---
+
 ## 4. 移动端专项（你特别强调的部分）
 
 `custom.css` 里 `@media` 共 **17 处，全部是 `max-width: 768px`**（另有 3 处 `prefers-color-scheme: dark` 深色模式）。
@@ -525,7 +722,7 @@ Verify 步全绿，新增那行输出 `warden-select-toggle 总出现次数: 1  
 | 1 | `index.html` 的 `<meta viewport content="width=1010">` —— 强制整页缩放 | ✅ **P2 已修**（源码级 `device-width`） |
 | 2 | `bit-layout > .tw-grid` 被 Angular 写成内联 `grid-template-columns: 0px minmax(384px,1fr) 0px` —— <384px 屏必溢出 | ✅ **已修**（J8，`8d4292dee2`） |
 | 3 | 保险库页内部 flex 三栏（筛选 1/4 + 列表 3/4），窄屏筛选列只剩 **67px** | ✅ **已修**：F2 改纵向堆叠（`8d4292dee2`）+ J9 把 11 个筛选区块收进默认收起的开关（`2a8039eb24`） |
-| 4 | 全局侧边导航窄屏被应用自身收成 0px 且**无汉堡按钮** | 🟡 **J17 底部标签栏已落地**（`cbab779ca1`）替代入口；「窄屏隐藏 side-nav」那半边仍**刻意未做**，待与 J9 同批收尾（见 §3 的 ⚠️） |
+| 4 | 全局侧边导航窄屏被应用自身收成 0px 且**无汉堡按钮** | ✅ **已修**：J17 底部标签栏（`cbab779ca1`）提供一级入口 + **F5 段隐藏原生侧栏**（`3457e7ccb7`）；二级由 J11 的 chips 接管（设置 5 项 / 工具 3 项） |
 
 > ⚠️ **已知血案（务必避免重犯）**：v5 曾用 `grid-template-columns: 0 minmax(0,1fr) 0 !important` 锁死三列网格，
 > 导致第 3 列（承载 `bit-dialog` 的"浮层列"）被压成 0，Send 的新增对话框变成 `width:0 / left:视口宽`，
@@ -543,12 +740,12 @@ Verify 步全绿，新增那行输出 `warden-select-toggle 总出现次数: 1  
 | ~~11~~ | ~~**J17 + G 段：底部标签栏**~~ | 新组件 | **高** | 官方无对应物 | ✅ `cbab779ca1` ⬅ **keystone，已提前完成**（理由见 §3 第三批 ①） |
 | ~~5a~~ | ~~**J9：窄屏筛选抽屉** + C 段筛选半边~~ | 组件 | 中 | `app-vault-filter` | ✅ `2a8039eb24`（理由见 §3 第四批 ①） |
 | ~~4a~~ | ~~**J7「选择」半边 + J14 选择模式 + A 段**~~ | 模板 | 中 | — | ✅ `6528392574`（见 §3 第五批） |
-| **4b** | J7「新增」半边 + **I 段**：把 `vault-new-cipher-menu` 搬进表格行 + 藏掉窄屏重复页头 | 模板+CSS | 中 | **J10/J11**（账户动作要有地方去） | ⬅ **下一步**（必须与 5b 同批） |
-| 5b | F 段其余：**「隐藏 side-nav」**（J17 就位后阻塞已解除，须与 I 段同批，见 §3 的 ⚠️） | CSS | 中 | J17 + 4b | ⬜ |
+| ~~4b~~ | ~~J7「新增」半边 + **I 段**：把 `vault-new-cipher-menu` 搬进表格行 + 藏掉窄屏重复页头~~ | 模板+CSS | 中 | **J10/J11** | ✅ `3457e7ccb7` —— 「新增」改以**不同方式**落地：页头塌成只含「新增」的紧凑工具行，不做 DOM 搬运（见 §3 第六批 ②） |
+| ~~5b~~ | ~~F 段其余：**「隐藏 side-nav」**~~ | CSS | 中 | J17 + 4b | ✅ `3457e7ccb7`（F5 段） |
 | 6 | J6 + B 段：TOTP 徽章（换官方 `totp-countdown` + 改视觉形态） | 组件 | 中 | 官方组件已存在 | ⬜ |
 | ~~7~~ | ~~J12：行内菜单「文件夹」~~ | 模板 | 低 | — | ✅ `8d4292dee2`（L 段 CSS 一并淘汰） |
-| 8 | J11 + J10 + I/J/J2/J3 段：二级导航 + 账户卡片 | 组件 | 中 | — | ⬜ |
-| 9 | J13：头像上传 | 组件 | 中 | 后端已就绪 | ⬜ |
+| ~~8~~ | ~~J11 + J10 + I/J/J2/J3 段：二级导航 + 账户卡片~~ | 组件 | 中 | — | ✅ `3457e7ccb7`（见 §3 第六批） |
+| ~~9~~ | ~~J13：头像上传~~ | 组件 | 中 | 后端已就绪 | ✅ `3457e7ccb7`（随 J10 的账户卡片落地） |
 | 10 | J16 + E 段：独立「验证码」页 | 路由+组件 | 中 | — | ⬜（落地后把底栏第 2 项的 `routerLink` 由 `/vault` 改为 `/totp`） |
 | 12 | J1–J5 + J18–J19：删除绕路代码 | 清理 | 低 | 前置全部完成 | ⬜ |
 | 13 | **P7**：删 `custom/` + 切线上 | — | **高** | 需独立预览环境 | ⬜ |
@@ -560,6 +757,18 @@ Verify 步全绿，新增那行输出 `warden-select-toggle 总出现次数: 1  
 > 「新增」半边要等 I 段，而 I 段要等 J10/J11。所以第 4 行拆成 4a（已完成）/ 4b（下一步），
 > 4b 与 5b 必须同批：藏掉页头的同时要把 side-nav 与「新增」的去处安排好，
 > 否则移动端会分别失去导航入口和新增入口。
+
+> **验收口径修正（2026-09-13，第六批）**：用户明确 "**你可以以不同的方案实现相同的效果试试，
+> 因为确实有一些是冗余的**"。此后验收标准从"逐条复刻 L4 的实现方式"改为
+> **「功能等价 + 运行时可测量」**：
+> - L4 的运行期机制（注入 DOM / 劫持 fetch / body 类驱动 / 按文案点菜单）只有在
+>   **没有官方对应物**时才照搬；
+> - 有官方服务/组件可用的（锁定、注销、取 token、路由跳转）一律走官方；
+> - 判定条件一律用**结构判定**（`:has()`）代替 JS 挂 body 类；
+> - 唯一的硬约束是 `tests/mobile-regression.mjs` 已经断言过的 DOM 标记
+>   （`#warden-tabbar` / `#warden-subnav` / `#warden-acctcard` / `.warden-acct-*` /
+>   `body.warden-avatar-on`）—— 动它们要连回归脚本一起改，收益为负。
+> - 允许的差异必须**写进 §3 对应批次**并注明可回退性（如 4b 多占一行高度）。
 
 ---
 
