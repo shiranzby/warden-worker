@@ -164,6 +164,33 @@ vault-cipher-row   onEvent.emit({ type:"moveToFolder", items:[cipher] })
 
 > 📌 **L 段（128 行）整体淘汰**：既然走官方对话框，那套自建浮层的样式全部不需要。
 
+#### ④ 把这三块写进 CI 的产物断言（workflow 提交 `dc0463c`）
+
+原来的产物断言只覆盖旧定制（视口 / 主密码长度 / css 是否存在），**F/J8/J12 没有任何守卫** ——
+它们将来被上游 rebase 冲掉，CI 照样全绿。本轮补上了，判据都经过**区分度验证**。
+
+> ⚠️ **两个坑（都已踩过）**
+> 1. **不能断言函数名**：`resolveMainMinWidthPx` 被生产构建的 terser 改名成了 `D`，
+>    按名字 grep 得到的是**假警报**。改为断言**编译后的结构**：
+>    `24*(0,<fn>)();return Math.min(` —— 直译自 `Math.min(floor, cw>0?cw:floor)`，
+>    与标识符命名无关。
+> 2. **不能只看某个字符串**：`moveToFolder` **上游本就有 2 处**
+>    （表头 `bulkMoveToFolder()` + `vault.component` 的 `case`），按名字断言**没迁也通过**。
+>    改断言官方**没有**的那条行组件独有 emit：`onEvent.emit({type:"moveToFolder"`。
+
+**区分度矩阵**（拿官方基线跑同一段脚本必须 FAIL）：
+
+| 产物 | F 段 | J8 | J12 |
+|---|---|---|---|
+| 官方基线 | 连 `css/vaultwarden.css` 都没有 | 无 | 无（命中旧的 2 处） |
+| fork / fork3（更早） | 无 css | 无 | 无 |
+| p2（H/K/M 期，已有 css） | 有 css 但无 F 段标记 | 无 | 无 |
+| **当前（run ⑦）** | **有** | **有** | **有** |
+
+CI 实测（run ⑦ `34762363139`，步骤 11 日志）：
+`viewport=device-width` / `minimumPasswordLength=8` / `css 16769 bytes` /
+`moveToFolder 总出现次数: 5（官方基线为 2）` / `✅ 五项源码级定制均已在实际产物中得到验证`。
+
 #### 验证方式（与 L4 那种"写了但不知生不生效"的区别）
 
 本地 dev server、375×812 iPhone 视口、**连真实后端**，13/13 通过。关键指标不是"声明存在"，而是**计算样式**：
