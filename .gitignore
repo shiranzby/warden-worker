@@ -15,6 +15,10 @@ tests/shots/
 # Generated seed SQL (global equivalent domains)
 sql/global_domains_seed.sql
 
+# 部署后验证的临时目录(轮询 CI / 抓取线上产物), 由 skill 的 verify-deploy.sh 使用
+.ci/
+.deploycheck/
+
 # Coding assistant
 .ace-tool/
 .codex/
