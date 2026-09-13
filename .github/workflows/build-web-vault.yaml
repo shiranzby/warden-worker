@@ -180,13 +180,50 @@ jobs:
             # 它们是 2026-09-13 从 L4(custom/custom.css) 迁进 fork 源码的。
             grep -q 'shypwd mobile adaptation' .vw.css \
               || { echo "❌ css/vaultwarden.css 里找不到移动端适配段(H/K/M)" >&2; fail=1; }
+            # F 段(窄屏布局: 保险库页改上下堆叠)同样来自 L4 的迁移, 2026-09-13 落地。
+            # 断言的是**段标记注释**(CSS 不参与 minify, 注释会原样保留), 比断言某条 CSS
+            # 值更稳: 值可能被后续调整, 段标记只在整段被删/被 rebase 冲掉时才消失。
+            grep -q 'F\. 窄屏布局' .vw.css \
+              || { echo "❌ css/vaultwarden.css 里找不到 F 段(窄屏布局)" >&2; fail=1; }
             echo "✅ css/vaultwarden.css 由构建自带 ($(wc -c < .vw.css) bytes)"
           else
             echo "❌ 产物缺少 css/vaultwarden.css —— copy-webpack-plugin 的复制规则没生效" >&2; fail=1
           fi
 
+          # 4) J8 网格下限  ← libs/components/src/layout/layout.component.ts
+          #    MAIN_MIN_WIDTH_REM(24rem) 与 <main> 的 tw-min-w-96 是配套的, 窄屏会溢出。
+          #    源码把它包进 resolveMainMinWidthPx() 并 cap 到容器宽度。
+          #
+          #    ⚠️ 这里**不能** grep 函数名 —— 生产构建的 terser 会把
+          #    resolveMainMinWidthPx 改名(实测改成了 D), 名字在产物里根本不存在,
+          #    照名字断言会得到"改动丢了"的假警报。改为断言**编译后的结构**:
+          #        function D(e){const t=24*(0,v.T)();return Math.min(t,e>0?e:t)}
+          #    即 "24 * 一个零参导入函数" 紧跟 "return Math.min(" —— 这个形状直译
+          #    自源码的 `Math.min(floor, containerWidth>0?containerWidth:floor)`,
+          #    与标识符命名无关, 只随 J8 本身的存在而存在。
+          #    (若将来这块被上游重写导致误报, 先看 layout.component.ts 的
+          #     resolveMainMinWidthPx 是否还在, 再决定改断言还是改实现。)
+          grep -qE '24\*\(0,[A-Za-z0-9_$]+\.[A-Za-z0-9_$]+\)\(\);return Math\.min\(' .main.js \
+            || { echo "❌ 产物里找不到 J8(网格最小宽度 cap) 的编译特征" >&2; fail=1; }
+
+          # 5) J12 行内菜单「文件夹」 ← vault-cipher-row.component.html / .ts
+          #    需求是「添加到文件夹」→「文件夹」。源码里靠抛 moveToFolder 事件复用
+          #    官方 bulkMove 链路(11 行替代 L4 的 467 行)。
+          #
+          #    ⚠️ 不能只 grep 'moveToFolder' 四个字 —— **上游本来就有 2 处**:
+          #         bulkMoveToFolder(){this.event({type:"moveToFolder",…})}   (表头批量菜单)
+          #         case"moveToFolder": yield this.bulkMove(…)               (vault.component 分发)
+          #    按名字断言会在没迁的情况下也通过(实测官方基线就是 2 次)。
+          #    要断言的是**行组件独有的那条 emit**(官方没有):
+          #         moveToFolder(){ this.onEvent.emit({type:"moveToFolder", items:[this.cipher]}) }
+          #    属性名(onEvent/emit/type/items/cipher)不参与标识符混淆, 字符串字面量也不
+          #    参与, 所以这段可以用 -F 原样查。(实测: 官方基线 2 次命中此串; 我们是 5 次。)
+          grep -qF 'onEvent.emit({type:"moveToFolder"' .main.js \
+            || { echo "❌ 产物里找不到 J12(行组件 emit moveToFolder)" >&2; fail=1; }
+          echo "moveToFolder 总出现次数: $(grep -o 'moveToFolder' .main.js | wc -l)  (官方基线为 2)"
+
           [ "${fail}" -eq 0 ] || exit 1
-          echo "✅ 三项源码级定制均已在实际产物中得到验证"
+          echo "✅ 五项源码级定制(F/J8/J12 + 视口 + 主密码长度)均已在实际产物中得到验证"
 
       - name: Disk space after
         if: always()
