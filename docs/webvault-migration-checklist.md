@@ -33,7 +33,7 @@
 | **P3** 本地热重载 | `https://localhost:8080`，改源码即时生效（已实测逐字节验证） | ✅ |
 | **P4** 版本兼容评估 | 结论：**零后端改动**，新功能默认全关，UI 行为 ≈ 6.4 | ✅ |
 | **P5** 迁样式类改动 | A/B/C/E/F/G/H/I/J/J2/J3/K/L/M 共 14 段 / 1248 行 | 🟡 **H+K+M 已落地**（210 行）、**F 主部 + F5 已落地**、**G 段随 J17 落地**（81 行）、**C 段筛选抽屉半边随 J9 落地**（39 行）、**A 段 + C 段「名称」表头工具行随 J7 落地**（150 行，见 §3 第五批）、**I/J/J2/J3 随第六批落地**（见 §3 第六批）、**B 段随第七批落地**（见 §3 第七批）、**E 段随第八批落地**（见 §3 第八批）、**L 整体淘汰**（J12 改走官方对话框） |
-| **P6** 迁结构类改动 | TOTP 徽章 / 表头工具行 / 头像卡片 / 验证码页 / 底部标签栏 等 | ✅ **全部落地**：J12 + J8 + J17 + J9 + J14 + J7（「选择」半边）+ J10 账户卡片 + J11 二级导航 + J13 头像上传 + 4b/I 段 + J6 行内 TOTP 徽章/B 段 + J16 验证码页/E 段 + J15 ng-select 躲软键盘 |
+| **P6** 迁结构类改动 | TOTP 徽章 / 表头工具行 / 头像卡片 / 验证码页 / 底部标签栏 等 | ✅ **全部落地**：J12 + J8 + J17 + J9 + J14 + J7（「选择」半边）+ J10 账户卡片 + J11 二级导航 + J13 头像上传 + 4b/I 段 + J6 行内 TOTP 徽章/B 段 + J16 验证码页/E 段 + J15 ng-select 躲软键盘 + **第十批/N 段（窄屏省高度，非 L4 迁入，见 §3 第十批）** |
 | **P7** 拆 L4 + 切线上 | 删 `custom/`、删 CI 注入步骤、切到 fork 的 `v2026.8.0` 产物 | ✅ **源码侧已完成**（`custom/` 3262 行已删、注入步骤已删并加负向守卫、`BW_WEB_VERSION` 默认改 `v2026.8.0`）；线上切换见下方说明 |
 
 > ### ⚠️→✅ P7 前置阻塞已修（2026-09-14 定位并修复：`b981110`）
@@ -945,6 +945,117 @@ Chrome 在相对定位元素上把 `left` 报成 **used value（`0px`）**；逐
 
 > 验证脚本第一版把这条写成了断言（"无键盘时不得接管"），跑出来 FAIL —— **是断言错了不是代码错了**。
 > 已改成守真正的不变量："接管后必须紧贴字段且完整落在可见区内"。
+
+---
+
+### 第十批已落地：窄屏省高度 / N 段（fork 提交 `bed28439be`）
+
+> ⚠️ **这一批不是 L4 迁入的** —— `custom.js` / `custom.css` 里没有对应实现，是 P7 上线后
+> 按用户反馈新增的。所以样式段标记**不占 L4 的字母/编号**，写成「N 段」（L4 的 J 编号里
+> `J18` 已被"每秒 tick"占用，别复用）。
+
+#### ① 改了什么
+
+窄屏上有两行"只占高度、不承载信息"：
+
+| 问题 | 改法 | 落点 |
+|---|---|---|
+| 页头那一行只剩一颗「新增」（左侧标题/面包屑、产品切换宫格已被 I 段藏掉） | 把「新增」**并进列表的「名称/选择」行**，页头那颗整块藏掉 | `vault-items.component.{ts,html}` + `vault-items.module.ts` + `vault.component.html` + `vault-header.component.{ts,html}` |
+| 筛选面板顶部的「筛选」标题行只重复了下面开关上的同一句话 | 窄屏 `display:none` —— **只藏这一行**，`bit-search`（搜索密码库）与 `.warden-filter-toggle`（筛选开关）必须保留，它们是窄屏唯一的两条筛选入口 | `css/vaultwarden.css`（N 段） |
+
+#### ② 权限位不重算：用模板引用变量从页头透传
+
+`vault.component.html` 给 `<app-vault-header>` 加了 `#vaultHeader`，然后
+
+```html
+[canCreateCipher]="vaultHeader.canCreateCipher"
+[canCreateCollection]="vaultHeader.canCreateCollections"
+[newCipherMenuDisabled]="vaultHeader.isOrganizationSuspended"
+[showNewCipherMenu]="filter.type !== 'trash'"
+```
+
+直接取页头实例上的 **public getter / `@Input`**，不在列表组件里重算一遍 ——
+两处"能否新建 / 是否被停用"天然同源，不会出现"页头说能、行里说不能"的漂移。
+
+> `vault-items` 是 `standalone: false`，模板能解析到 `vault-new-cipher-menu` /
+> `app-coachmark` 靠的是 **`VaultItemsModule.imports` 里注册**，不是组件 TS 的 import。
+> 所以 TS 侧**不要**加 `NewCipherMenuComponent` 的 import —— 那是死代码（加过一次，删了）。
+
+#### ③ coachmark 锚点必须跟着换（最容易漏的一条）
+
+`addItem` 那个 coachmark 步骤是 **`[bitPopoverAnchorFor]` 锚在按钮上**的，而 popover 走
+cdk overlay（`new TemplatePortal(...)` 挂到 overlay 容器），**不受祖先 `display:none` 约束**。
+所以若两处都挂锚点：两个弹层会**同时打开**，且锚到被藏起来那颗按钮的那个会拿到**全零 rect**
+（`getBoundingClientRect()` 全 0）⇒ 弹层掉到视口左上角，`spotlight` 还会罩住一块空区域。
+
+做法：让"当前可见的那颗"挂锚点 —— 列表侧是 `isNarrowViewport`，页头侧是它的取反
+（`[coachmarkPopoverOpen]="!isNarrowViewport && addItemCoachmarkOpen()"`）。
+
+> 为什么不引入响应式断点服务：这个判定**只在弹层"要开"时需要正确**，而弹层由
+> `CoachmarkService.activeStepId` 信号驱动开合 —— 信号一变必然跟一次变更检测，
+> 这个 getter 就会被重新求值。断点写 `window.innerWidth <= 768`，与 CSS 的 `@media`
+> 对齐（源码与 CSS 两侧都留了互相指向的注释）。
+>
+> 这条**没做运行期验证**：coachmark 只在**首登用户第一次进密码库**时出现一次，
+> 测试账号早已不是首登，强行重置会污染账号状态。只做了静态核对：两个作用域下各
+> 1 个 `addItem` coachmark（运行期脚本里有断言），锚点开关见上。
+
+#### ④ 与 L4 的关系（有意差异）
+
+L4 是把官方 `vault-new-cipher-menu` 的 **DOM 节点**在运行期 `appendChild` 进
+`#warden-headbar`，并记下原父节点/后继节点以便拼回（约 35 行 JS，见 I 段注释）。
+这里改成**模板里两个实例、CSS 决定显示哪个**：无 DOM 搬运、无记账，且桌面↔窄屏 resize
+（不刷新）能立刻跟着切。
+
+代价：窄屏下 DOM 里确实有两个「新增」实体（页头那个 `display:none`），两个按钮共用官方
+模板里写死的 `id="newItemDropdown"` ⇒ 窄屏下页面里有**重复 id**。影响面已核：
+`<bit-menu aria-labelledby="newItemDropdown">` 会解析到第一个（被藏那颗），但两颗按钮
+文案相同，读屏结果不变；除此之外没有任何地方按这个 id 取元素。CSS 侧为避免误伤，
+压缩规则用 `.warden-headbar #newItemButton, .warden-headbar #newItemDropdown` 定位
+（**不用** `.warden-headbar button`，那会把 `<bit-menu>` 里的菜单项一起压）。
+
+#### ⑤ ⚠️ 踩坑：`header > .warden-head-new` 一条都命中不到
+
+「新增」上面还套着三层 flex 包装，实测真实链是：
+
+```
+app-vault-header > app-header > bit-header > header.-tw-mt-6.-tw-mx-8.tw-mb-3
+  > div.tw-flex
+    > div.tw-ml-auto.tw-flex.tw-flex-col
+      > div.tw-flex.tw-min-w-max.tw-items-center
+        > div.tw-shrink-0.warden-head-new      ← 「新增」在这里
+```
+
+第一版写成**直接子选择器** `header > .warden-head-new`，结果：窄屏下页头那颗照旧显示
+（`display: block`）、列表里又多一颗 ⇒ **两个入口**，而且页头那 56px **一点没省下来**。
+运行期脚本第一条断言就 FAIL 暴露了它（`{"display":"block"}`）。
+
+**教训**：这个仓库里"页头里的东西"几乎都不在 `header` 直下（I 段的规则也全是后代选择器）。
+新增规则时要先落 DOM 链再写选择器，别照着模板层级的直觉写 —— 运行期脚本是唯一能抓到这个的关口
+（`grep` 产物只能证明"规则写进去了"）。
+
+#### ⑥ 验证
+
+- 产物断言（CI 升为 **18 组**）：组 18 断言 `.main.js` 有 `warden-head-new`；
+  `.vw.css` 有 `窄屏省高度` / `.warden-head-new` / `#newItemDropdown` / `filters-header`；
+  外加负向守卫"藏页头那颗的规则不得顶格"。**区分度已核**：官方 v2026.6.4 包里
+  `styles.*.css` 对这 5 个字面量全部 **0 次**（`warden-headbar` 也是 0），
+  而 `newItemDropdown` / `filters-header` 在官方 **JS** 里有 ⇒ 所以这两条只能断言在
+  `.vw.css`，断言 `.main.js` 等于"没迁也能过"。
+- 运行期：`.deploycheck/verify-batch10.mjs`（dev server HTTPS :8099，登录一次复用同一个 page，
+  375×812 → 1280×900 → 再切回 375，全程不刷新）—— **27/27 PASS**。关键读数：
+  - 窄屏页头高度 **56px → 16px**（省掉那一行）；「新增」的垂直中心 320 落在「名称」th 的
+    `[298, 343]` 内 ⇒ 与列头同行；`新增.right 139 ≤ 选择.left 159` ⇒ 顺序为 名称…新增 选择。
+  - 筛选面板：`[data-testid="filters-header"]` 不可见，`bit-search` / `.warden-filter-toggle`
+    都在；点开关能展开 **6/6** 个筛选区块。
+  - 点列表里的「新增」真的弹出菜单（overlay 里 6 个 `role="menuitem"`）。
+  - 桌面 1280：`app-vault-header` 高度 **93px**、页头「新增」可见、`.warden-headbar`
+    `display:none`、「筛选」标题行可见 —— 与改动前一致，无横向溢出。
+  - 桌面↔窄屏来回切（**不刷新**）显隐全部跟着走（这条守住"用 CSS 而不是 `@if` 决定显隐"的选型）。
+  - 控制台：未捕获异常 **0**。⚠️ 另有 4 条 `Applying inline style violates ... style-src`
+    的 CSP 报错，**在登录后、任何点击之前就已经存在**（4 → 4 不增长）⇒ 是 dev server 下
+    Angular 走 inline style 注入组件样式、而应用自带 CSP 只放行 `'self'` 的固有噪声，
+    与本批无关（脚本里单列 `cspNoise`，不混进 hard error）。
 
 ## 4. 移动端专项（你特别强调的部分）
 

@@ -455,8 +455,37 @@ jobs:
             fail=1
           fi
 
+          # 18) 第十批 / N 段: 窄屏「新增」并入列表「名称/选择」行 + 去掉多余的「筛选」标题行
+          #     ← vault-items.component.{ts,html} + vault-items.module.ts
+          #       + individual-vault/vault.component.html
+          #       + individual-vault/vault-header/vault-header.component.{ts,html}
+          #       + css/vaultwarden.css
+          #     ★ 这一批**不是 L4 迁入的**(custom.js/custom.css 里没有对应实现), 是上线后按
+          #       用户反馈新增的 —— 所以段标记不占 L4 的字母/编号(段标记写成「N 段」)。
+          #     「新增」在窄屏从页头搬进列表行(页头那颗整块藏掉), 所以本批是**成对**的改动:
+          #     只藏页头那颗而不在列表里渲染, 窄屏就彻底没有「新增」入口。
+          #     判据:
+          #       .main.js 'warden-head-new' —— 页头那颗「新增」的包装 class(本批新加)
+          #       .vw.css  '窄屏省高度'        —— 新样式段的段标记
+          #       .vw.css  '.warden-head-new' —— 藏页头那颗的规则
+          #       .vw.css  '#newItemDropdown' —— 搬进列表那颗的压缩规则(官方 CSS 基线 0 次)
+          #       .vw.css  'filters-header'   —— 隐藏多余「筛选」标题行的规则(同上)
+          #     ⚠️ 不要断言 vault-new-cipher-menu: 官方页头本来就用它, 等于"没迁也能过"。
+          grep -qF 'warden-head-new' .main.js \
+            || { echo "❌ 产物里找不到第十批的标记 'warden-head-new'" >&2; fail=1; }
+          for lit in '窄屏省高度' '.warden-head-new' '#newItemDropdown' 'filters-header'; do
+            grep -qF "${lit}" .vw.css \
+              || { echo "❌ css/vaultwarden.css 里找不到第十批的标记 '${lit}'" >&2; fail=1; }
+          done
+          #    ★ 负向守卫: 藏页头「新增」的规则**必须**写在 @media (max-width:768px) 里
+          #      (在本文件里表现为规则行有缩进), 顶格 = 桌面端连唯一的「新增」也消失。
+          if grep -qE '^main#main-content app-vault-header .*\.warden-head-new' .vw.css; then
+            echo "❌ 藏页头「新增」的规则写成了全局: 桌面端会失去「新增」入口" >&2
+            fail=1
+          fi
+
           [ "${fail}" -eq 0 ] || exit 1
-          echo "✅ 十七项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11 + 第七批 J6/B段 + 第八批 J16/E段 + 第九批 J15)均已在实际产物中得到验证"
+          echo "✅ 十八项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11 + 第七批 J6/B段 + 第八批 J16/E段 + 第九批 J15 + 第十批/N段)均已在实际产物中得到验证"
 
       - name: Disk space after
         if: always()
