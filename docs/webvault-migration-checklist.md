@@ -53,6 +53,37 @@
 > **"删注入层"与"前端 6.4 → 8.0 跳版"是同一动作，拆不开**；详见 §5 迁移顺序与 `docs/webvault-source-migration.md`。
 >
 > **回滚路径**：`git revert` P7 提交 + 把 `BW_WEB_VERSION` 改回 `v2026.6.4` + 重跑 `Build`（约 3–4 分钟）。
+>
+> ### ✅ 上线记录（2026-09-14）
+> | 步骤 | 结果 |
+> |---|---|
+> | `b981110` fix(ci): 补 `mkdir -p public` | 已推 `fork/main`（带 `[skip ci]`，未触发部署） |
+> | `a0a2b10` refactor(webvault): P7 | 已推 `fork/main`；`-3307 / +52` |
+> | `build-web-vault` dispatch `version=v2026.8.0` | run **`34790935707`** success → artifact `bw_web_vault-v2026.8.0` @ `2026-09-13T23:56:35Z`（成为最新，部署侧取它；**17 组断言全过 = 产物确含全部 9 批**） |
+> | `push-cloudflare` dispatch（workflow 名 `Build`） | run **`34791143696`** success（**这是 P2 以来第一次成功的部署**） |
+>
+> **线上验证（`https://shypwd.cc.cd`，8/8 + 浏览器 6/6 全过）**：
+> - `vw-version.json` = `2026.8.0`（页脚也显示 "Vaultwarden Web 2026.8.0"）
+> - **`/custom.js` 与 `/custom.css` 均返回 404**，`index.html` 不含任何 `custom.*` 引用 ⇒ 注入层确已退役
+> - 定制本体仍在：`.warden-headbar` / `.warden-select-toggle` / `.warden-selectable`（J7+A 段）、
+>   `warden-tabbar`（J17）、`warden-subnav`（J11）、`warden-acctcard`（J10）、
+>   `warden-totp-code`（J6）、`warden-authview`（J16）、`visualViewport`（J15）、`css/vaultwarden.css`
+> - 负向：`warden-sel-mode` / `sel=above` / `MutationObserver` 均为 **0 次**（L4 绕路代码无残留）
+> - 浏览器：`app-root` 正常挂载、title `Vaultwarden Web`、窄屏 375px 无横向溢出、
+>   `meta viewport = width=device-width,initial-scale=1,viewport-fit=cover`、**无 console/pageerror**
+
+---
+
+> ### ⚠️ 尚未处理的遗留（不阻塞 P7，但会误导后来人）
+> `.github/workflows/deploy-dev.yaml`（`name: Deploy Dev`，触发条件是 push `dev` 分支 / 手动 dispatch）
+> 自 P1/P2 起就**已经是陈旧件**，三个坑：
+> 1. 同样有 `tar -xzf ... -C public/` 而缺 `mkdir -p public`（与 `push-cloudflare` 同款崩溃）；
+> 2. 它下载的是**官方** `dani-garcia/bw_web_builds` 的 release，**不是我们 fork 的 artifact**
+>    ⇒ 真跑起来会发布**未打任何定制**的前端；
+> 3. 第 92 行仍 `cp public/css/vaultwarden.css` —— 该文件 P2 已删除，必失败。
+>
+> 因为 `dev` 分支不存在，它一直没被触发，所以没暴露。**若将来要做"独立预览环境"，这里要重写**
+> （照 `push-cloudflare.yaml` 的"按 artifact 名反查 + 硬校验"模式改），不能直接开。
 
 ---
 
