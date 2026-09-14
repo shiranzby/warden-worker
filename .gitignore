@@ -25,11 +25,15 @@ sql/global_domains_seed.sql
 #   · 先忽略目录下所有内容(`.deploycheck/*`, 注意不能写成 `.deploycheck/` ——
 #     整个目录被忽略时 git 不会进入它, 后面的 `!` 白名单会被一并忽略掉);
 #   · 再逐条放行脚本。
-# 🔴 **绝不能用"按扩展名放行"**(如 `!.deploycheck/*.mjs`) —— 该目录里还有 20 多个
-#    早期诊断脚本是**硬编码了测试账号主密码**的, 按扩展名放行会把它们提交到
-#    public 仓库。新增要入库的脚本时, 必须**逐个加白名单**, 加之前先扫凭据:
-#      grep -l -- 'ghp_\|github_pat_\|VerifyTest\|WARDEN_TEST_PASS=' .deploycheck/*
-#    凭据统一放 `.deploycheck/.env.local`(下面已忽略), 脚本从环境变量读。
+# 🔴 **绝不能用"按扩展名放行"**(如 `!.deploycheck/*.mjs`) —— 该目录里还有 18 个
+#    早期脚本带着**测试账号 + 主密码**明文(9 个直接硬编码, 9 个写成 `process.env.X || "明文"`
+#    的兜底), 按扩展名放行会把它们提交到 public 仓库。新增要入库的脚本时, 必须
+#    **逐个加白名单**, 加之前先在 .deploycheck/ 里跑扫描(完整模式与理由见 .deploycheck/README.md):
+#      PAT='(ACCOUNT|MAIL|EMAIL|PASSWORD|PASS|TOKEN|SECRET)[A-Za-z_]*[[:space:]]*[:=][^"]{0,60}"[A-Za-z0-9._@!-]{8,}|ghp_[A-Za-z0-9]{20}|github_pat_[A-Za-z0-9_]{20}'
+#      grep -lE -- "$PAT" * 2>/dev/null
+#    ⚠️ 别把真实的账号前缀/密码前缀写进本文件 —— 它是**公开**的; 也别把裸 `PAT` 加回变量名
+#       列表(`PATCHED`/`PATH` 会误伤)。凭据统一放 `.deploycheck/.env.local`(被下面第一条忽略),
+#       脚本从环境变量读。
 .deploycheck/*
 !.deploycheck/README.md
 !.deploycheck/b8-lib.mjs

@@ -11,28 +11,51 @@
 | **回归脚本**（真正的知识资产） | ✅ 入库（逐个白名单） | `b8-lib.mjs`、`verify-batch10.mjs`、`verify-batch11.mjs`、`verify-j15.mjs`、`verify-p7-browser.mjs`、`devserver-b8.config.js`、`poll-progress.sh`、`run-artifact-asserts.py` |
 | 产物快照 / 离线包 / 抓下来的 bundle | ❌ 忽略（GB 级、可再生） | `p1/`、`sh-test/`、`patched/`、`ours/`、`*.zip`、`*.tar.gz`、`dvmain*.js` |
 | 凭据与登录态 | ❌ 忽略 | `.env.local`、`shypwd-auth.json` |
-| 其余一次性诊断脚本 | ❌ 忽略 | `diag-*.mjs`、`probe-*.mjs`、`shot-*.mjs` … |
+| 其余一次性诊断脚本 | ❌ 忽略 | `diag-*.mjs`、`probe-*.mjs`、`shot-*.mjs` … （⚠️ 这批多数带明文凭据，见下） |
 
-> 还有一批**也干净、但暂未入库**的脚本，想要可照同样流程加白名单：
-> `verify-batch6/7/8.mjs`、`verify-j7/j9.mjs`、`verify-local.mjs`、`verify-tabbar.mjs`、`probe-*-assert.mjs`
-> —— ⚠️ 它们**大多硬编码了测试账号凭据**（见下），加白名单前必须先脱敏。
+> 还有一批**当年一起写、暂未入库**的脚本，想入库请照同样的"扫描 → 脱敏 → 加白名单"流程：
+> `verify-batch6/7/8.mjs`、`verify-j7/j9.mjs`、`verify-local.mjs`、`verify-tabbar.mjs`、`probe-*-assert.mjs`。
+> ⚠️ **别以为它们已经脱敏**：实测只有 `verify-batch8.mjs` 和 `probe-*-assert.mjs` 是干净的；
+> `verify-batch6/7.mjs`、`verify-j7/j9.mjs`、`verify-local.mjs`、`verify-tabbar.mjs` 都写着
+> `process.env.WARDEN_TEST_MAIL || "<真实邮箱>"` 这种**兜底明文**。
 
 ## 🔴 凭据规矩（本仓库是 **public**，别踩）
 
-2026-09-14 清理时发现：早期脚本里有 **2 个文件硬编码了 GitHub PAT**、**23 个文件硬编码了测试账号主密码**。
-脚本入库前已经脱敏 —— 凭据统一放 **`.deploycheck/.env.local`**（已 gitignore），脚本从环境变量读：
+2026-09-14 审计（用下面那条扫描命令跑的）：**18 个文件**里带着测试账号 + 主密码 ——
+
+- **9 个直接硬编码**：`diag-b6-css/why`、`diag-b7-column`、`diag-live-login`、`diag-occluder`、`login-probe`、`probe-setupext`、`shot-b6`、`shot-l4-select-btn`
+- **9 个是 `process.env.X || "<字面量>"` 兜底**：`verify-batch6/7`、`verify-j7/j9`、`verify-local`、`verify-tabbar`、`seed-b7`、`probe-b7-rows`、`probe-j7-width`
+  —— 这类**最容易被误当成"已脱敏"**，一定要扫出来。
+
+另有 **2 个脚本曾把 GitHub PAT 直接写在文件里**（`poll-progress.sh` / `poll-run.sh`），已改为读环境变量。
+以上文件**全在 `.gitignore` 覆盖范围内，从未进过远端**（已用 GitHub raw 逐字核对：账号/密码/PAT 共 5 个真实值命中 0 次）。
+
+要入库的脚本已经脱敏 —— 凭据统一放 **`.deploycheck/.env.local`**（已 gitignore），脚本从环境变量读：
 
 - `b8-lib.mjs` → 读 `.env.local` / `WARDEN_TEST_MAIL` + `WARDEN_TEST_PASS`
 - `poll-progress.sh` → 读 `.env.local` / `GH_PAT`
 
-**新增要入库的脚本时，必须逐个加白名单，且加之前先扫凭据：**
+**新增要入库的脚本时，必须逐个加白名单，且加之前先在 `.deploycheck/` 里跑这条扫描：**
 
 ```bash
-grep -l -- 'ghp_\|github_pat_\|VerifyTest\|WARDEN_TEST_PASS=' .deploycheck/*
+PAT='(ACCOUNT|MAIL|EMAIL|PASSWORD|PASS|TOKEN|SECRET)[A-Za-z_]*[[:space:]]*[:=][^"]{0,60}"[A-Za-z0-9._@!-]{8,}|ghp_[A-Za-z0-9]{20}|github_pat_[A-Za-z0-9_]{20}'
+grep -lE -- "$PAT" * 2>/dev/null      # 目录名会报"是不是目录"，被 2>/dev/null 吞掉，看输出列表即可
 ```
 
-**绝对不要**把 `.gitignore` 写成按扩展名放行（如 `!.deploycheck/*.mjs`）—— 那会把上面那 20 多个
-带明文密码的历史脚本一起提交。也**不要** `git add -f` 本目录。
+**每条约束都是踩出来的，别简化：**
+
+- `[:=][^"]{0,60}"` —— 中间故意允许 60 个字符，是为了把 `X = process.env.Y || "明文"` 这种**兜底**一起抓出来；
+  只写 `= *"` 会漏掉它（`verify-batch7.mjs` 就是这么漏的）。
+- `[A-Za-z0-9._@!-]{8,}` —— 要求引号后是"类密钥字符且 ≥8 位"，这样 `'^GH_PAT='`（正则字面量）、`"$(...)"`（命令替换）、
+  `""`（空兜底）都不会误报。
+- **不要**把裸 `PAT` 加进变量名列表 —— `PATCHED` / `PATH` 会误伤。
+- **不要**把真实的账号/密码前缀写进本文件或 `.gitignore`（两者都是**公开**的），也别拿 `.env.local` 的真实值当样例。
+- 实测：这条命令对本目录命中 **18/18** 个含明文凭据的文件，对本表已入库的 9 个文件**零误报**。
+
+> 命中的不一定是真密钥：`verify-batch7.mjs` 的 `KNOWN_SECRET` 是 RFC 4226 附录 D 的**公开测试向量**，人工看一眼即可。
+
+**绝对不要**把 `.gitignore` 写成按扩展名放行（如 `!.deploycheck/*.mjs`）—— 那会把上面那 18 个
+带明文凭据的历史脚本一起提交。也**不要** `git add -f` 本目录。
 
 ## 怎么跑验证
 
