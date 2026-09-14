@@ -17,7 +17,7 @@ on:
       version:
         description: "产物标签 / artifact 名 (如 v2026.8.2)。会与源码里的版本核对, 不一致直接失败"
         required: true
-        default: "v2026.8.2"
+        default: "v2026.8.3"
 
 env:
   # 我们的前端源码 fork。定制已直接落在源码里(见 fork 的 shypwd 分支)。
@@ -563,8 +563,47 @@ jobs:
             | grep -qF -- 'padding-left: 12px !important' \
             || { echo "❌ .vw.css 里 O1 的筛选按钮没有只覆盖横向内边距(P 段的修法没落进去)" >&2; fail=1; }
 
+          # 21) 第十三批 / Q 段: 窄屏设置页的间距/换行 + 下拉面板跟随输入框(用户反馈 6 条)
+          #     ← libs/components/src/select/select.component.ts        (问题1/3: 下拉面板被甩飞)
+          #       + auth/settings/account/profile.component.ts          (问题2: 名称保存后卡片不变)
+          #       + layouts/account-card.component.ts                   (问题4: 卡片只在「我的账户」页)
+          #       + settings/domain-rules.component.html                (问题5: 自定义域名表单默认一行)
+          #       + auth/settings/emergency-access/emergency-access.component.html (问题6: 标题/按钮拆两行)
+          #       + css/vaultwarden.css (Q 段: Q1 指纹→名称留白 / Q2 邮箱→危险区留白 / Q3 紧急访问拆行)
+          #     与第十一批同理: **不是 L4 迁入的**, 是上线后按用户反馈新增的, 段标记为「Q 段」。
+          #
+          #     .main.js  'warden-ea-head' —— 紧急访问标题行的标记类(模板静态 class)。
+          #               ★ 为什么必须加标记类: 那个组件没声明 selector, 渲染成 <ng-component>,
+          #                 所以 CSS 里没法用 `app-emergency-access` 选中它(详见模板里的注释)。
+          #     .main.js  'attributeFilter:["style"]' —— 下拉面板几何盯梢(MutationObserver)。
+          #               ★ 这一条是本批**唯一只存在于 TS 里**的修复: 不体现在 CSS/模板上,
+          #                 rebase 上游时最容易整段丢掉, 而丢了只在真机上表现为"点箭头没反应"。
+          #                 `attributeFilter` 是 DOM API 契约的属性名, 不参与 terser 的标识符混淆,
+          #                 所以按字面量断言是稳的(v2026.8.2 线上产物实测 0 次 ⇒ 有区分度)。
+          #     .vw.css   'Q. 第十三批'  —— 段横幅
+          #     .vw.css   '.warden-ea-head' / 'app-profile .tw-grid' /
+          #               'app-danger-zone > h1.tw-mt-16' —— Q1/Q2/Q3 的三条选择器
+          #     ⚠️ 不要断言 'setAccountName' 来代表问题2: 官方基线本来就有 1 次, 等于"没修也能过"。
+          #     🔴 同样要 `--`: 'attributeFilter:["style"]' 以 `a` 开头没事, 但 Q 段的选择器里有
+          #        `.` 开头的, 统一带上 `--` 省得下次加 `--warden-*` 时又栽(fail-fast 的教训)。
+          for lit in 'warden-ea-head' 'attributeFilter:["style"]'; do
+            grep -qF -- "${lit}" .main.js \
+              || { echo "❌ 产物 main.js 里找不到第十三批的标记 '${lit}'" >&2; fail=1; }
+          done
+          for lit in 'Q. 第十三批' '.warden-ea-head' 'app-profile .tw-grid' \
+                     'app-danger-zone > h1.tw-mt-16'; do
+            grep -qF -- "${lit}" .vw.css \
+              || { echo "❌ css/vaultwarden.css 里找不到第十三批的标记 '${lit}'" >&2; fail=1; }
+          done
+          #    ★ 负向守卫: 把「标题 + 按钮」拆两行的规则**必须**写在 @media (max-width:768px) 里
+          #      (在本文件里表现为规则行有缩进), 顶格 = 桌面端标题与按钮也会被拆成上下两行。
+          if grep -qE '^main#main-content \.warden-ea-head' .vw.css; then
+            echo "❌ Q3 的紧急访问拆行规则写成了全局: 桌面端标题与按钮也会被拆成上下两行" >&2
+            fail=1
+          fi
+
           [ "${fail}" -eq 0 ] || exit 1
-          echo "✅ 二十项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11 + 第七批 J6/B段 + 第八批 J16/E段 + 第九批 J15 + 第十批/N段 + 第十一批/O段 + 第十二批/P段)均已在实际产物中得到验证"
+          echo "✅ 二十一项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11 + 第七批 J6/B段 + 第八批 J16/E段 + 第九批 J15 + 第十批/N段 + 第十一批/O段 + 第十二批/P段 + 第十三批/Q段)均已在实际产物中得到验证"
 
       - name: Disk space after
         if: always()
