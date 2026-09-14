@@ -176,6 +176,32 @@
 
 ---
 
+> ### ✅ 上线记录 · 第十三批 / Q 段（设置页间距/换行 + 下拉面板跟随，2026-09-14）
+> 版本号 `2026.8.2 → 2026.8.3`（沿用"升 patch 位让版本号自己成为上线判据"的做法）。
+> 本批 6 条全部来自用户对移动端的反馈，与第十/十一/十二批同理：**不是 L4 迁入的**。
+>
+> | 步骤 | run | 结果 | 耗时 | 备注 |
+> |---|---|---|---|---|
+> | `Build Web Vault (patched)`（`version=v2026.8.3`） | **`34806871484`** | ✅ success | **5m39s** | 第 10 步 **21 组断言全绿**（本批新增第 21 组） |
+> | `push-cloudflare` dispatch（workflow 名 `Build`） | **`34807213844`** | ✅ success | **4m13s** | |
+>
+> - 前端源码：fork `shypwd` = **`3f26c76552`**（8 文件：1 个组件 TS + 1 个指令模板 + 3 个设置页 + CSS + 版本号）；
+>   warden-worker `main` = **`0734cec`**（CI 第 21 组 + 两处版本默认值 + 收录 `verify-batch13.mjs`）。
+> - **线上验证**：`vw-version.json` = **`2026.8.3`**；主 JS 哈希 `de1a601412da6aad9dd9` →
+>   **`aa965e2a7f4296dfc944`**（线上资产确实换了）；`/css/vaultwarden.css` 76603 B **与本地产物逐字节同尺寸**，
+>   内含 `Q. 第十三批` / `.warden-ea-head` / `app-profile .tw-grid` / `app-danger-zone > h1.tw-mt-16`；
+>   线上 `main.js` 里 `warden-ea-head` **1 次**、`attributeFilter:["style"]` **2 次**（`v2026.8.2` 基线**都是 0**）。
+> - **线上运行时 22/22 PASS**（`verify-batch13.mjs`，读数与本地**完全一致**：面板 gap −508px、两处留白 8px、
+>   textarea 30→40px、紧急访问标题 1 行 h=36px / 按钮 h=40px）；
+>   另 **0 console error / 0 page error / 0 CSP 违规**（本批大量走 CSSOM 行内几何，专门体检过）。
+> - 用 3 步 dispatch（只留 `--retry 3`，不用 `-o /dev/null`）⇒ **只触发 1 个 run**；
+>   push `main` 的那次**带 `[skip ci]`**（改 workflow 版本默认值时 artifact 还不存在，自动部署必挂）。
+>
+> **回滚**：`git revert` fork 的 `3f26c76552` + `BW_WEB_VERSION` 改回 `v2026.8.2`（+ 同步 lock 与
+> `inputs.version` 默认值），再重跑 `Build`。
+
+---
+
 > ### ✅ 遗留已清除：`deploy-dev.yaml` 已删除（2026-09-14）
 > `.github/workflows/deploy-dev.yaml`（`name: Deploy Dev`）与 `push-cloudflare.yaml` 共用同一段取产物逻辑，
 > 但停留在 P1 之前，有三个坑：① 同样 `tar -xzf ... -C public/` 而缺 `mkdir -p public`；
@@ -1378,6 +1404,97 @@ O1 原来的断言是「搜索框与筛选开关**垂直中心差 < 8px**」。�
 
 > 为什么上一轮没发现：`b8-lib.mjs` 的加载器用正则 `^\s*([A-Z0-9_]+)\s*=` 筛 key，**天生不受影响** ——
 > 所以只测 Node 侧根本测不出这个 bug。**"带注释的 `.env.local` + shell 加载器"这个组合必须单独跑一次。**
+
+
+### 第十三批已落地：窄屏设置页的间距/换行 + 下拉面板跟随输入框 / Q 段（fork 提交 `3f26c76552`）
+
+> 与第十/十一/十二批同理：**不是 L4 迁入的**，来自上线后的用户反馈（本次一次性 6 条）。段标记续「P 段」用「Q 段」。
+
+#### ① 反馈 → 改法
+
+| # | 反馈（用户原话要点） | 根因 | 改法 | 落点 |
+|---|---|---|---|---|
+| **Q1** | 发送页「新增文本/新增文件」后的删除日期、谁可以查看，工具页导入页的全部下拉**点箭头展不开，只能输入**；设置页的会话超时、密钥算法、外观页同理 | `bit-select` 为躲软键盘把面板改成 `fixed`（视口坐标），而 ng-select 的 `_handleWindowScroll()` 用**文档坐标**重写 `panel.top` ⇒ 页面一滚就把面板从输入框上方甩回下方（实测 508~585px），正好塞到键盘后面 | 见 ②：MutationObserver 盯 `style` | `libs/components/src/select/select.component.ts` |
+| **Q2a** | 设置页改名字「似乎并不成功，名称一直都是 user」 | `PUT /api/accounts/profile` **本来就 200**，但顶部卡片读 `activeAccount$.name`，它只在登录/解锁时写过 | `submit()` 里补 `accountService.setAccountName(userId, name)` | `auth/settings/account/profile.component.ts` |
+| **Q2b** | 账户页「指纹短语 → 名称」之间有空白行 | 40px = 指纹块 `margin-bottom` 16px + `.tw-grid.tw-gap-6` 的**行间距** 24px；改完还剩 16px，来自**指纹组件内部的 `<p>`** | 见 ④ | `css/vaultwarden.css`（Q1 段） |
+| **Q2c** | 账户页「电子邮箱 → 危险操作区」之间有空白行 | 危险区首行是 `<h1 class="tw-mt-16">`，H3 段已把窄屏 `.tw-mt-16` 节流到 24px | 见 ⑤（权重坑） | `css/vaultwarden.css`（Q2 段） |
+| **Q3** | 二级导航「我的账户/安全/外观…」下面一直横着一张 user/头像/邮箱/锁定/注销的卡片，希望**只在「我的账户」页**出现 | 卡片 `visible` 的路径判据是"以 `/settings` 开头" | 收窄到 `/settings/account` | `layouts/account-card.component.ts` |
+| **Q4** | 域名规则新增自定义域名后弹出的表单是**双行**，希望默认一行、可换行再展第二行 | 模板写死 `rows="2"`（=40px） | `rows="1"`；折行后由 `bitInput` 自带的 `adjustTextareaHeight()` 自己长高（**这条依赖不能删**） | `settings/domain-rules.component.html` |
+| **Q5** | 紧急访问页「已信任的紧急联系人」与「添加紧急联系人」字数多，希望拆成两行（标题一行、按钮第二行） | 那一行是 `tw-flex tw-items-center`（nowrap），标题被挤到 198px 折成 **3 行**（h=72px），按钮也被挤成 2 行（h=60px） | 见 ③：加标记类 + Q 段改 `flex-direction: column` | `auth/settings/emergency-access/emergency-access.component.html` + `css/vaultwarden.css`（Q3 段） |
+
+#### ② 本批最硬的一条：`!important` **挡不住 ng-select 的 CSSOM 赋值**
+
+`bit-select` 的 `fitPanelToKeyboard()` 把面板改成 `position: fixed`（否则软键盘会盖住它），这本身没错。
+问题在 ng-select 的 `_handleWindowScroll()`：它监听 `document` 上的 `scroll`（**capture** ⇒ 抽屉里那个滚动区的滚动也算），
+然后按 `containerRect.bottom - body.getBoundingClientRect().top` 算 `top` —— 那是**文档坐标**，只对 `position: absolute` 成立。
+
+于是"点开 → 软键盘弹起 → 页面为把输入框顶进可见区而滚动"这一下，它会把我们刚放到**输入框上方**的面板又甩回**下方**
+（实测 security-keys 页那一跳 **585px**、算法页 **508px**），正好塞到键盘后面 ⇒ 用户看到的就是"点下箭头没反应，只能输入"。
+
+第一版按常规写法给行内值加 `!important` 钉死 —— **实测无效**：
+
+```
+滚动前  el.style.top = "8px"    priority = "important"
+滚动后  el.style.top = "518px"  priority = ""          ← 被 ng-select 覆盖
+```
+
+原因：`CSSStyleDeclaration.top = "518px"`（ng-select 的 `_updateYPosition()` 就是这么做的）是**替换整个声明**，
+会把优先级一起清成普通。**`!important` 只挡得住别的样式表规则，挡不住后写的 CSSOM 赋值。**
+
+而且"比谁后写"也必输：我们自己的 `document` scroll 监听是同步跑的，ng-select 那一下走 `auditTime(0, …)`（延后到调度器）。
+唯一稳的解法是**事件驱动地"它写一次、我们纠一次"** —— `MutationObserver` 盯面板的 `style` 属性，
+回调里**先 `disconnect()` 再写、写完再 `observe()`**（防死循环；只观察面板自身且不开 `subtree`，所以子节点 `.ng-dropdown-panel-items` 的 `maxHeight` 不会反过来触发）。
+
+另外补了两个"交还桌面端"的收尾（漏了会留下"桌面端面板再也回不到原生定位"的偶发 bug）：
+`onClose()` 与 `DestroyRef.onDestroy` 里都 `stopGeometryWatch()`；进入宽屏分支时先 `clearGeometry()` 再停盯梢。
+
+#### ③ 组件没有 `selector` ⇒ DOM 里根本不存在 `app-emergency-access`
+
+紧急访问那个组件的 `@Component` **只声明了 `templateUrl`/`imports`，没有 `selector`** —— 路由直接实例化它，
+Angular 渲染出来的是 `<ng-component>`。实测宿主链：
+`h2 > div > section > bit-section > div > bit-container > ng-component > main` ⇒ CSS 里 `app-emergency-access` 永远选不中。
+
+而 `div.tw-flex:has(> h2)` 这类结构选择器又会误伤别处（发件菜单里也有 `div.tw-flex`）。
+所以照仓库既有的 `.warden-name-row` / `.warden-acctcard` / `.warden-head-newbar` 的路子，
+在模板上加了**标记类 `warden-ea-head`**。（这条也是 CI 第 21 组的判据之一。）
+
+#### ④ 空白行"修不净"时，往组件内部再挖一层
+
+Q2b 先改了两条（`.tw-grid` 的 `row-gap` + 指纹块的 `margin-bottom`），实测**还剩 16px**。
+用 `probe-b13-fingerprint.mjs` 逐层量下去：`div.bottom=190 / fp.bottom=174 / p.bottom=174 / p.margin-bottom=16px`
+—— 那 16px 是 `account-fingerprint.component.html` 里那个短语段落的 `<p>` 自带的，
+**不是 APP 自己的样式表给的**，所以只改外面那两条永远差 16px。补 `app-profile app-account-fingerprint p { margin-bottom: 0 }` 后落到 8px。
+
+#### ⑤ 权重坑：`.tw-mt-16` 那个类名不能省
+
+Q2c 第一版写的是 `main#main-content app-danger-zone > h1` —— **(1,0,3)**；
+而 H3 段的 `main#main-content .tw-mt-16` 是 **(1,1,1)** ⇒ **H3 赢**（同为 `!important` 时比权重，与书写先后无关）。
+补上 `.tw-mt-16`（变成 `h1.tw-mt-16` = (1,1,3)）才压得住。与 O5「取消」那条是同一类坑，选择器必须**照抄被覆盖的那条的类名**。
+
+#### ⑥ 验收：判据本身也要先被证明
+
+`verify-batch13.mjs` 共 22 条断言，本地与线上各跑一次全绿。**但判据写错过两次，都是"先假定、后实测"造成的**：
+
+1. 「真实滚动后面板仍贴着输入框」原判据是"gap 差值 ≤ 3px" —— 面板高 466px 被视口上沿钳住，gap **必然**变。
+   改为"**仍在上方**（`gap < 0`）且 top 没往下掉"。
+2. 「紧急访问标题只占一行」原判据是 `height / lineHeight <= 1.2` —— 取到的却是**父容器**的 `lineHeight`
+   （`normal` → 24px），而 h2 自身是 36px ⇒ `36/24=1.5`，把**已经修好的单行**判成失败。
+   改为用 `Range.getClientRects()` **数真实行数**：按纵向重叠聚类（容差 4px）——
+   不去重的话，按钮里"图标 + 文字"两个 rect 的 top 差 1~3px，会把**单行按钮**数成 2 行（这条也踩了一次）。
+
+> ★ 通用教训：**断言的条件必须先在一个"已知修好"的界面上验证它能给出通过值**，否则你验的是判据不是功能。
+> 这与第十二批 P 段那条（"垂直中心对齐"在按钮矮 18px 时照样通过）是同一个病：**弱判据会静默放行**。
+
+#### ⑦ 验证
+
+- **运行期** `.deploycheck/verify-batch13.mjs`（22 条）：本地 22/22、线上 22/22，读数完全一致
+  （面板 gap −508px 稳定、两处留白 40/24px → **8px**、改名 PUT 200 且卡片**立即**变、卡片只在账户页、
+  textarea 30px 单行且填长内容长到 40px、紧急访问标题 1 行 / 按钮第二行）；
+- **CI**：第 21 组断言（`warden-ea-head` / `attributeFilter:["style"]` / `Q. 第十三批` / 三条选择器 +
+  "拆行规则必须在 @media 内"的负向守卫）。判据全部做过**基线取证**：`v2026.8.2` 线上产物里
+  `warden-ea-head` / `attributeFilter` / `Q. 第十三批` **都是 0 次**（`setAccountName` 是 1 次，故弃用）；
+  并用 `run-artifact-asserts.py` 在**本机生产产物**上预演 21 组全绿（避免断言写错让 CI 红一轮）；
+- **上线**：run 明细见 §1「上线记录 · 第十三批 / Q 段」。
 
 
 ## 4. 移动端专项（你特别强调的部分）
