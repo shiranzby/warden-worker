@@ -72,6 +72,39 @@
 > - 浏览器：`app-root` 正常挂载、title `Vaultwarden Web`、窄屏 375px 无横向溢出、
 >   `meta viewport = width=device-width,initial-scale=1,viewport-fit=cover`、**无 console/pageerror**
 
+> ### ✅ 上线记录 · 第十批 / N 段（窄屏省高度，2026-09-14）
+> 用户确认后按「先 build 后 deploy」执行两条 workflow，**均一次通过**：
+>
+> | 步骤 | run | 结果 | 耗时 |
+> |---|---|---|---|
+> | `Build Web Vault (patched)`（`version=v2026.8.0`） | **`34794128650`** | success | **约 6 分钟** |
+> | `push-cloudflare` dispatch（workflow 名 `Build`） | **`34794445635`** | success | **约 5 分钟** |
+>
+> 构建侧关键关卡都过了：步骤 7 `Verify version matches the source`（版本闸门，证明确实拉的是
+> fork `shypwd` = `bed28439be`）、步骤 11 `Verify our customizations are in the built artifact`
+> （**18 组断言全绿 = 定制确已进产物**）。
+>
+> **线上验证（27/27 PASS，脚本打线上：`WARDEN_TEST_BASE=https://shypwd.cc.cd` +
+> `WARDEN_TEST_PROXY=http://127.0.0.1:7890 node .deploycheck/verify-batch10.mjs`）**：
+> - asset 哈希 `main.682291b8…` → **`main.bcbe594e8d36993f0697.js`**（"真的换了产物"的硬证据）
+> - `/app/main.bcbe594e…js`（5.4MB）含 `warden-head-new` / `newItemDropdown` / `filters-header` /
+>   `warden-headbar` / `addItemCoachmark`×2 / `vault-new-cipher-menu`×3
+> - `/css/vaultwarden.css`（58KB）含 `窄屏省高度` / `warden-head-new`×5 / `filters-header`×2
+> - 窄屏页头 **16px**、桌面 **93px**；「新增」垂直中心 320 ∈「名称」表头 [298,343]；
+>   `新增.right 139 ≤ 选择.left 159`；筛选标题行隐藏且搜索/开关都在（开关展开 6/6）；
+>   列表「新增」菜单 6 项；两处 coachmark 各 1 个；无横向溢出；**hard error 0**
+> - `/custom.js`、`/custom.css` 仍 **404**（注入层退役状态保持）
+>
+> ⚠️ **`vw-version.json` 仍是 `2026.8.0`，与部署前相同** —— 同版本号重新构建时该文件不变，
+> **不能拿它当"有没有部署"的判据**。判据是「run 列表 build+deploy 都 success」+「asset 哈希变了」。
+>
+> ⚠️ **验线上产物别取错路径**：主包在 **`/app/main.<hash>.js`**，`/main.<hash>.js` 不存在，
+> Worker 会回 **SPA 的 404 HTML**（约 23KB，`<title>Page not found | Bitwarden Web vault</title>`），
+> 于是 `grep -c` 得 0 —— 看起来像定制没上线，其实是下错了文件。**先看 `%{http_code} %{size_download}`**。
+> `vaultwarden.css` 也不在 `styles.<hash>.css` 里，而是首页单独 `<link href="css/vaultwarden.css">`。
+>
+> **回滚**：`git revert` fork 的 `bed28439be` + 重跑 `Build`（版本号不用动）。
+
 ---
 
 > ### ✅ 遗留已清除：`deploy-dev.yaml` 已删除（2026-09-14）
@@ -1056,6 +1089,24 @@ app-vault-header > app-header > bit-header > header.-tw-mt-6.-tw-mx-8.tw-mb-3
     的 CSP 报错，**在登录后、任何点击之前就已经存在**（4 → 4 不增长）⇒ 是 dev server 下
     Angular 走 inline style 注入组件样式、而应用自带 CSP 只放行 `'self'` 的固有噪声，
     与本批无关（脚本里单列 `cspNoise`，不混进 hard error）。
+
+#### ⑦ 上线（2026-09-14 已部署）
+
+用户确认后按「先 build 后 deploy」跑了两条 workflow（见 §1 的「上线记录 · 第十批」）：
+build `34794128650` success（约 6 分钟）→ deploy `34794445635` success（约 5 分钟）。
+
+线上复验（**同一个脚本**，只换目标，加 `WARDEN_TEST_PROXY=http://127.0.0.1:7890`）：
+**27/27 PASS**，读数与本地完全一致（页头 16px / 桌面 93px / 新增在列头行 / 筛选标题行隐藏）。
+线上 asset 哈希由 `main.682291b8…` 变为 `main.bcbe594e8d36993f0697.js`。
+
+⚠️ **注意 dev server 下的 CSP 噪声在线上是 0 条**（线上 CSP 带 inline style 的 sha256 白名单），
+所以线上那段读数比本地更干净 —— 别把"线上没有 CSP 报错"误当成"漏了某项断言"。
+
+⚠️ **取线上产物两条路径口径**（写脚本时照这个，别取错）：
+- 主包 **`/app/main.<hash>.js`**（本次 5.4MB）。**`/main.<hash>.js` 不存在**，会回 200 的 SPA
+  404 HTML（约 23KB），`grep -c` 得 0 ⇒ 会被误读成"定制没上线"。
+- 自定义 CSS 在 **`/css/vaultwarden.css`**（本次 58KB），**不在** `styles.<hash>.css` 里。
+
 
 ## 4. 移动端专项（你特别强调的部分）
 
