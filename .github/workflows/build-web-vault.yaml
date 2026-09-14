@@ -15,9 +15,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "产物标签 / artifact 名 (如 v2026.8.6)。会与源码里的版本核对, 不一致直接失败"
+        description: "产物标签 / artifact 名 (如 v2026.8.7)。会与源码里的版本核对, 不一致直接失败"
         required: true
-        default: "v2026.8.6"
+        default: "v2026.8.7"
 
 env:
   # 我们的前端源码 fork。定制已直接落在源码里(见 fork 的 shypwd 分支)。
@@ -772,6 +772,11 @@ jobs:
           #               📌 区分度(实测, 两版线上产物逐字对过):
           #                  v2026.8.5(S 段): Math.round(...)=**2** / Math.floor(...)=**0**
           #                  v2026.8.6(T 段): Math.round(...)=**0** / Math.floor(...)=**1**
+          #                  v2026.8.7(U 段): 与 T 段**同值**(round=0 / floor=1)。U 段压根不碰
+          #                  TOTP 那两个文件(totp-badge / totp.service) ⇒ 字面量不会变。
+          #                  ⚠️ 这一行的数字**没有本机核对**: 本机 `apps/web/build/` 里那份是
+          #                     **未压缩**的 webpack 产物(数字不会压成 `1e3`), 数出来必然 0/0,
+          #                     照抄会写出假数据。真值以 CI 产物为准 —— 正/负两条断言本身已经够用。
           #                  多出来的那次 round 是 S 段自己在 totp-badge 里算的 `step`(T 段随
           #                  判据一起删了, 见上面第 22 项)。所以正负两条必须同时断: 只断 floor
           #                  的话, 有人把 `step` 的 round 写法加回来也查不出来。
@@ -816,8 +821,87 @@ jobs:
             fi
           done
 
+          # 25) 第十七批 / U 段: 移动端第五轮反馈(用户反馈 4 条, 全部落地)
+          #     ← libs/components/src/select/select.component.{html,ts}     (问题2: 下拉跑到屏幕顶 + 问题4: 松手才展开)
+          #       + libs/tools/send/send-ui/src/send-form/components/options/send-options.component.{html,ts}
+          #                                                                   (问题2: −/+ 次数、空=不限制的 placeholder)
+          #       + libs/tools/export-vault-ui/src/components/export.component.html  (问题4: 原生 select → bit-select)
+          #       + apps/web/src/css/vaultwarden.css                          (U1~U5)
+          #       + apps/web/src/locales/{en,zh_CN}/messages.json             (3 个新 key)
+          #     与第十~十六批同理: **不是 L4 迁入的**, 是上线后按用户反馈新增的, 段标记「U 段」。
+          #
+          #     .main.js  'pressStartedOnField' —— 问题4「松手才展开」的**实现核心**:
+          #               pointerdown 只记下"这一下起手在控件本体上", 真正的 toggle 挪到 pointerup。
+          #               没有这个字段 = 又退回"一碰就弹"。**类属性名不参与 terser 混淆**, 可靠。
+          #     .main.js  'onFieldPointerup'   —— 与上面**成对**: 模板 `(pointerup)` 绑的就是它。
+          #               只断 pressStartedOnField 的话, 有人把模板上那个绑定摘掉也查不出来
+          #               (方法还在, 但永远不会被调用)。
+          #     .main.js  'stepMaxAccessCount' —— 问题2「最大访问次数右侧 −/+ 按钮」的步进方法。
+          #     .main.js  'max-access-count-increase' / 'max-access-count-decrease'
+          #               —— 两个按钮的 `data-testid`(模板静态属性, 编译后是字面量)。
+          #               ★ 与上一条的方法名**成对**断言, 理由同 T 段: 只断 TS 的话,
+          #                 模板里把按钮删了样式/逻辑都还在, 功能却静默消失。
+          #     .main.js  'maxAccessCountPlaceholder' —— placeholder「不限制」的 getter。
+          #     .main.js  'wardenUnlimited' / 'wardenIncrease' / 'wardenDecrease'
+          #               —— 本批**新增的 3 个 i18n key**。
+          #               新 key 是最干净的"本批独有"判据: 上一版产物里**不可能**有它们
+          #               (i18n key 是以字符串字面量进 main.js 的, `i18nService.t("wardenUnlimited")`)。
+          #
+          #     ⚠️ 本批有**两处改动刻意不做 grep 判据**, 这是有意留空、不是漏了:
+          #        (a) 问题2 的「下拉面板跑到屏幕顶端」—— 修的是 `applyGeometry()` 里的
+          #            方向决策。那段逻辑全是**局部变量**(spaceBelow/spaceAbove/measured/up),
+          #            terser 会把它们混淆掉, 产物里**没有**稳定字面量可断。
+          #        (b) 问题4 的「导出页 原生 <select> → bit-select」—— Angular 把模板编译成 JS,
+          #            两者的差别落在"谁被实例化"上; 'select' / 'option' / 'bit-select' 这些串
+          #            在产物别处也到处都是, 单看某串一定假阳性。
+          #        这两处改用**运行期探针**守:
+          #          .deploycheck/probe-u17-verify.mjs  (窄屏 390×844 —— 明断言"点是站内面板、
+          #                                              4 个选项、面板贴在框下沿、再点/点空白都收回")
+          #          .deploycheck/probe-u17-desktop.mjs (桌面 1280×860 回归)
+          #        别以为"CI 里没断 = 不用管": 它们是本批的核心缺陷, 只是判据不在这一层。
+          #
+          #     .vw.css   'U 段. 移动端第五轮反馈(第十七批)' —— 段横幅(vaultwarden.css 原样发布, 注释不剥)。
+          #     .vw.css   U1/U2/U3/U4/U5 五条选择器 + 两条关键声明(padding-top / display:none)。
+          #     ⚠️ **不要**拿 '.warden-domain-row'(T 段) / '.warden-totp-next'(S 段) /
+          #        'warden-tabbar'(更早) 来代表本批 —— 它们在上一版产物里就已存在, 等于"没修也能过"。
+          #        ⚠️ 尤其 'warden-tabbar': U3 的新写法是 `body:has(bit-dialog) #warden-tabbar`,
+          #           而裸的 'warden-tabbar' 从更早的批次起就在 `.vw.css` 里 —— 拿它当判据必假阳性。
+          #     🔴 所有字面量一律带 `--`(本批含 '(' / ':' / '.' / '>' / '"' 等,
+          #        不带会被 grep 当选项或语法错 —— fail-fast 的教训, 第十四批已栽过一次)。
+          for lit in 'pressStartedOnField' 'onFieldPointerup' 'stepMaxAccessCount' \
+                     'maxAccessCountPlaceholder' 'max-access-count-increase' \
+                     'max-access-count-decrease' 'wardenUnlimited' 'wardenIncrease' 'wardenDecrease'; do
+            grep -qF -- "${lit}" .main.js \
+              || { echo "❌ 产物 main.js 里找不到第十七批的标记 '${lit}'" >&2; fail=1; }
+          done
+          U_CSS_LITS=('U 段. 移动端第五轮反馈(第十七批)' \
+                      'main#main-content app-header header:has(bit-tab-nav-bar)' \
+                      'bit-dialog > section > header' \
+                      'body:has(bit-dialog) #warden-tabbar' \
+                      'bit-dialog textarea[formcontrolname="text"]' \
+                      'main#main-content tools-send-list > [slot="filters"]')
+          for lit in "${U_CSS_LITS[@]}"; do
+            grep -qF -- "${lit}" .vw.css \
+              || { echo "❌ css/vaultwarden.css 里找不到第十七批的标记 '${lit}'" >&2; fail=1; }
+          done
+          #    ★ 负向守卫: U 段 5 条规则**全部只在窄屏生效** —— 顶格 = 桌面端跟着遭殃:
+          #      U1 会把桌面端安全页/订阅页页头的浅灰底也抹掉 / U2 压扁桌面端所有对话框页头 /
+          #      U3 在桌面端藏掉标签栏(U3 对桌面其实无害, 但顶格说明它被挪出了 @media, 是异味) /
+          #      U4 把桌面端对话框里那两个字段也压成 32px / U5 抹掉桌面端发送页的 16px 间距。
+          #      判据沿用第十四/十五/十六批: `grep -nF` 命中行若在 `行号:` 之后**紧跟非空白字符**
+          #      即该处顶格(全局)。只有段横幅不参与(它本来就顶格)。
+          for lit in "${U_CSS_LITS[@]}"; do
+            case "${lit}" in
+              'U 段. 移动端第五轮反馈(第十七批)') continue ;;
+            esac
+            if grep -nF -- "${lit}" .vw.css | grep -qE '^[0-9]+:[^[:space:]]'; then
+              echo "❌ 第十七批的规则 '${lit}' 存在顶格(全局)写法: 桌面端也会被改掉" >&2
+              fail=1
+            fi
+          done
+
           [ "${fail}" -eq 0 ] || exit 1
-          echo "✅ 二十四项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11 + 第七批 J6/B段 + 第八批 J16/E段 + 第九批 J15 + 第十批/N段 + 第十一批/O段 + 第十二批/P段 + 第十三批/Q段 + 第十四批/R段 + 第十五批/S段 + 第十六批/T段)均已在实际产物中得到验证"
+          echo "✅ 二十五项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11 + 第七批 J6/B段 + 第八批 J16/E段 + 第九批 J15 + 第十批/N段 + 第十一批/O段 + 第十二批/P段 + 第十三批/Q段 + 第十四批/R段 + 第十五批/S段 + 第十六批/T段 + 第十七批/U段)均已在实际产物中得到验证"
 
       - name: Disk space after
         if: always()

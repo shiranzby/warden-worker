@@ -45,6 +45,9 @@ sql/global_domains_seed.sql
 !.deploycheck/verify-batch15.mjs
 !.deploycheck/verify-j15.mjs
 !.deploycheck/verify-p7-browser.mjs
+# 第十七批/U 段的两道回归闸门(窄屏验收 + 桌面回归)。入库前已跑过上面的凭据扫描, 无命中。
+!.deploycheck/probe-u17-verify.mjs
+!.deploycheck/probe-u17-desktop.mjs
 !.deploycheck/devserver-b8.config.js
 !.deploycheck/poll-progress.sh
 !.deploycheck/run-artifact-asserts.py
