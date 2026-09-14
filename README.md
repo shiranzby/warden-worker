@@ -6,6 +6,68 @@
 
 This project provides a self-hosted, Bitwarden-compatible server that can be deployed to Cloudflare Workers for free. It's designed to be low-maintenance, allowing you to "deploy and forget" without worrying about server management or recurring costs.
 
+---
+
+## 🇨🇳 本 Fork 是什么（先读这段）
+
+> 下面是**上游 warden** 的英文 README（保留原样）。本 Fork 在它之上做了两件事，中文说明集中在这里与
+> **[`docs/交付文档.md`](docs/交付文档.md)**（接手/迁移/开源/跟进上游，看这一篇就够了）。
+
+这是上游 [`qaz741wsd856/warden-worker`](https://github.com/qaz741wsd856/warden-worker) 的一个 Fork，
+现部署于 `https://shypwd.cc.cd`。与上游的差异：
+
+| | 上游 | 本 Fork |
+|---|---|---|
+| 前端来源 | 直接下载 Vaultwarden 的 `bw_web_builds` 预编译包 | **从我们自己维护的源码 fork 构建**：[`shiranzby/vw_web_builds`](https://github.com/shiranzby/vw_web_builds) 分支 `shypwd` |
+| 前端定制方式 | 部署后往 `public/css/` 覆盖一个 CSS | **直接写在前端源码里**，随构建产物一起出 |
+| 运行时注入层 `custom/custom.js` | 有（这是上游那套） | **已删除**，`/custom.js`、`/custom.css` 固定 404 |
+| 移动端适配 | 无 | **19 批**针对手机浏览器的改造（底栏导航、输入框高度、下拉躲软键盘、深色主题等） |
+| 构建期保护 | 无 | **27 组产物断言**：每批定制都在 CI 里对真实产物 grep 校验，rebase 丢改动会立刻红 |
+| 前端版本 | 跟随上游 `v2026.6.4` | **v2026.8.9**（`/vw-version.json` 可查） |
+
+### 分层（L1 / L2 / L3）
+
+```
+L3 前端 Web Vault   源我们在 fork 里改（GPL-3.0）→ 构建产物 bw_web_vault-<ver>.tar.gz
+                        ↓ 作为静态资源随 Worker 一起发布（public/web-vault/）
+L1 后端 Worker      Rust → WASM（MIT，上游 warden © 2025 Deep Gaurav）
+                        ↓
+L2 数据             Cloudflare D1（主数据）+ KV/R2（附件）+ Durable Objects（推送）+ 限流
+```
+
+**L4（运行时注入层）已退役** —— 这是本项目一个明确的设计选择：
+运行时补丁依赖"上游产物的 DOM 不变"，一改就静默失效且无法被构建期检查保护；
+下沉到源码后，每批定制都能在 CI 里被 grep 到。代价是要跟着上游 rebase，
+流程见 [`docs/交付文档.md` §7](docs/交付文档.md#7-上游跟进与长期维护)。
+
+### 一分钟部署到你自己的 Cloudflare
+
+**你不需要 fork 那个 1.2 GB 的前端仓库** —— 构建 workflow 里的 `VAULT_REPO` 指向我们公开的
+`shiranzby/vw_web_builds`，任何人 fork 本仓库都能构建出同样的定制前端。
+
+1. **Fork 本仓库**，然后在 Cloudflare 建好 **D1**（建议名 `vault1`）和 **KV**（附件用），
+   在仓库 *Settings → Secrets* 里加：
+   `CLOUDFLARE_EMAIL`、`CLOUDFLARE_API_KEY`、`CLOUDFLARE_ACCOUNT_ID`、`D1_DATABASE_ID`、
+   `ALLOWED_EMAILS`、`JWT_SECRET`、`JWT_REFRESH_SECRET`（可选 `R2_NAME`）。
+2. **跑一次构建**：Actions → `Build Web Vault (patched)` → *Run workflow* → `version` 填 `v2026.8.9`。
+3. **跑一次部署**：Actions → `Build` → *Run workflow*。
+4. 绑自定义域：DNS 加 `A → 192.0.2.1`（开橙色云）+ Workers Routes `<你的域名>/*`。
+
+自检：`https://<你的域名>/vw-version.json` 应返回 `{"version":"2026.8.9"}`，
+且 `/custom.js` 与 `/custom.css` 都是 **404**。
+
+> 更细的步骤（迁移数据、回滚、开源合规、上游跟进）见
+> **[`docs/交付文档.md`](docs/交付文档.md)**。
+
+### 许可证（两部分，别混淆）
+
+- **后端（本仓库，`src/`、`migrations/` 等）：MIT** —— 见 `LICENSE`，© 2025 Deep Gaurav。
+- **前端（构建产物，来自 Bitwarden clients）：GPL-3.0** —— 见 `.vwsrc/LICENSE_GPL.txt`、
+  `.vwsrc/LICENSE_BITWARDEN.txt`。
+- 「Bitwarden」是注册商标。本项目只是**协议兼容**，不是官方项目，也不得用其商标/Logo 对外宣称。
+
+---
+
 ## Why another Bitwarden server?
 
 While projects like [Vaultwarden](https://github.com/dani-garcia/vaultwarden) provide excellent self-hosted solutions, they still require you to manage a server or VPS. This can be a hassle, and if you forget to pay for your server, you could lose access to your passwords.
@@ -86,17 +148,36 @@ It's highly recommended to deploy your own instance since the demo can hit the r
 
 ## Frontend (Web Vault)
 
-The frontend is bundled with the Worker using [Cloudflare Workers Static Assets](https://developers.cloudflare.com/workers/static-assets/). The GitHub Actions workflows download a **pinned** [bw_web_builds](https://github.com/dani-garcia/bw_web_builds) (Vaultwarden web vault) release (default: `v2026.6.4`) and deploy it together with the backend. You can override it via GitHub Actions Variables (`BW_WEB_VERSION` for prod, `BW_WEB_VERSION_DEV` for dev), or set it to `latest` to follow upstream.
+<!-- ⚠️ 本节已被本 Fork 改写：上游原文说"下载 Vaultwarden 的 bw_web_builds 预编译包"，
+     本 Fork 改为**从自己的源码 fork 构建**，且不再有 public/css 覆盖那一步。 -->
+
+The frontend is bundled with the Worker using [Cloudflare Workers Static Assets](https://developers.cloudflare.com/workers/static-assets/).
+
+**本 Fork 与上游不同**：前端不是下载上游预编译包，而是从我们维护的源码 fork
+[`shiranzby/vw_web_builds`](https://github.com/shiranzby/vw_web_builds)（分支 `shypwd`）构建出来的 ——
+所有定制都**直接写在前端源码里**，随构建产物一起发布，不再有"部署后覆盖 CSS"这一层。
+
+由 `build-web-vault.yaml`（手动触发，输入 `version`）完成：
+拉源码 → `npm ci` → `dist:oss:selfhost` → 打 `bw_web_vault-<version>.tar.gz`
+→ **27 组产物断言** → 上传为 Actions artifact（保留 90 天）。
+随后 `push-cloudflare.yaml` 按 artifact 名反查、解压到 `public/web-vault/` 并部署。
 
 **How it works:**
 - Static files (HTML, CSS, JS) are served directly by Cloudflare's edge network.
 - API requests (`/api/*`, `/identity/*`) are routed to the Rust Worker.
 - No separate Pages deployment or domain configuration needed.
 
-**UI overrides (optional):**
-- This project ships a small set of "lightweight self-host" UI tweaks in `public/css/`.
-- In CI/CD (and optionally locally), we apply them after extracting `bw_web_builds`:
-  - `mkdir -p public/web-vault/css/ && cp public/css/vaultwarden.css public/web-vault/css/`
+**Version pinning（版本号四处，必须同步）：**
+
+| # | 位置 | 当前值 |
+|---|---|---|
+| 1 | fork `apps/web/package.json` 的 `version` | `2026.8.9` |
+| 2 | fork `package-lock.json` 的 `packages["apps/web"].version` | `2026.8.9` |
+| 3 | `build-web-vault.yaml` 的 `inputs.version` 默认值 | `v2026.8.9` |
+| 4 | `push-cloudflare.yaml` 的 `BW_WEB_VERSION` 默认值 | `v2026.8.9` |
+
+改版本只升 **patch 位**，让 `/vw-version.json` 自己成为"是否上线成功"的判据。
+⚠️ **改 workflow 的那次 push 必须带 `[skip ci]`**，否则会自动触发一次找不到新 artifact 的部署。
 
 > [!NOTE]
 > Migrating from separate frontend deployment? If you previously deployed the frontend separately to Cloudflare Pages, you can delete the `warden-frontend` Pages project and re-setup the router for the worker. The frontend is now bundled with the Worker and no longer requires a separate deployment.
@@ -322,6 +403,41 @@ If you deployed via a GitHub fork, keeping up to date is straightforward:
 
 > [!TIP]
 > It is recommended to sync your fork when a new release is published in the upstream, so you always have the latest features and security fixes.
+
+### 本 Fork：跟进上游要分两条线
+
+上游同步只能照顾到**后端**。前端的定制在另一个仓库，**必须单独 rebase**，
+否则下一次构建就会把上游的新代码和我们旧的定制掺在一起：
+
+| 线 | 上游 | 频率 | 做法 |
+|---|---|---|---|
+| 后端 | `qaz741wsd856/warden-worker` | 低 | 就是上面的 Sync fork；留意 `migrations/` 与 `wrangler.toml` 有没有新增绑定 |
+| 前端 | `bitwarden/clients`（经 `vaultwarden/vw_web_builds` 看 tag） | 每月发版 | 在 `vw_web_builds` 里 `git rebase --onto <新tag> <旧tag> shypwd`；冲突热点：`vaultwarden.css`、`libs/components/src/{select,disclosure,toggle-group}`、`libs/tools/send/**`、i18n `messages.json` |
+
+rebase 完改"版本号四处"，跑一次构建 —— **CI 的 27 组断言会告诉你哪一批定制丢了**
+（每组对应一批，红了就对着那一批修）。静态断言只能证明"字面量还在"，
+行为对不对要再跑一次运行期探针。
+
+完整流程（含冲突热点、回滚、节奏建议）见
+[`docs/交付文档.md` §7](docs/交付文档.md#7-上游跟进与长期维护)。
+
+### 验证工具箱（改动后建议都跑一遍）
+
+```bash
+# ① 产物断言：把 CI 那 27 组脚本抽出来，在你刚构建的产物上实跑
+python .deploycheck/run-artifact-asserts.py ../vw_web_builds/apps/web/build 2026.8.9
+
+# ② 守卫离线证伪：新增/修改了某批"只在窄屏生效"的守卫后必跑
+python .deploycheck/probe-s15-guard.py
+
+# ③ 窄屏运行期验收（本地 8099；带 WARDEN_TEST_PROXY 则走线上）
+node .deploycheck/probe-w19-verify.mjs
+WARDEN_TEST_BASE=https://<你的域名> WARDEN_TEST_PROXY=http://127.0.0.1:7890 \
+  node .deploycheck/probe-w19-verify.mjs
+```
+
+> ⚠️ `.deploycheck/` 默认整体 gitignore，只有逐个加白名单的脚本才入库
+> （目录里还有带测试账号明文的文件，**绝不能按扩展名批量放行**）。
 
 ## Contributing
 
