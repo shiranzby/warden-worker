@@ -51,6 +51,7 @@ sql/global_domains_seed.sql
 # CI 守卫审计: 查 build-web-vault.yaml 里 '^' 顶格守卫有没有**哑弹**(永远不命中)。
 # 第十四批实测踩到过 —— 守卫模式漏抄一个词, 把规则写成全局它也不报警。
 !.deploycheck/probe-audit-guards.py
+!.deploycheck/probe-s15-guard.py
 
 # Coding assistant
 .ace-tool/
