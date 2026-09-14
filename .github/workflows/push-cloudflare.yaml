@@ -23,7 +23,7 @@ jobs:
       #   否则 build-web-vault.yaml 的版本闸门不会产出同名 artifact, 部署侧反查必然失败。
       # - Set repository variable BW_WEB_VERSION to override
       # - Set to "latest" to follow the latest bw_web_builds release
-      BW_WEB_VERSION: ${{ vars.BW_WEB_VERSION || 'v2026.8.1' }}
+      BW_WEB_VERSION: ${{ vars.BW_WEB_VERSION || 'v2026.8.2' }}
 
       # Required for wrangler (Global API Key auth: EMAIL + API_KEY pair)
       CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}

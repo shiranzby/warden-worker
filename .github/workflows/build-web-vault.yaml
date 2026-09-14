@@ -15,9 +15,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "产物标签 / artifact 名 (如 v2026.8.1)。会与源码里的版本核对, 不一致直接失败"
+        description: "产物标签 / artifact 名 (如 v2026.8.2)。会与源码里的版本核对, 不一致直接失败"
         required: true
-        default: "v2026.8.1"
+        default: "v2026.8.2"
 
 env:
   # 我们的前端源码 fork。定制已直接落在源码里(见 fork 的 shypwd 分支)。
@@ -539,8 +539,32 @@ jobs:
           grep -qE '^  main#main-content \{$' .vw.css \
             || { echo "❌ .vw.css 里没有 @media 内的 main#main-content 规则(O6 的留白没落进去)" >&2; fail=1; }
 
+          # 20) 第十二批 / P 段: 窄屏「搜索框 ↔ 筛选按钮」高度对齐(用户反馈)
+          #     ← css/vaultwarden.css 单文件改动
+          #     现象: O1 把筛选开关并到搜索框右侧之后, 按钮比搜索框矮 18px(实测 22px vs 40px)。
+          #     根因: O1 为把按钮从 bitButton 的 block(整宽) 收回成内联尺寸, 写了**简写**
+          #           `padding: 0 12px !important` —— 本意只改横向(px-4=16px → 12px),
+          #           却把纵向一起清成了 0。而按钮的高度本来是靠 bitButton 的 pt/pb
+          #           (= 0.625rem - 1px = 9px) + 上下各 1px 边框 + 20px 行高 撑到 40px 的,
+          #           正好等于搜索框的 tw-min-h-10(40px) —— 本来就对齐。
+          #     修法: 只覆盖 padding-left / padding-right, 纵向留给 bitButton 自己
+          #           (这样上游调尺寸时按钮能跟着走, 不会再次错位)。
+          #
+          #     🔴 判据必须**限定在那条规则块内** —— `padding: 0 12px !important` 在本文件里还有
+          #        另一处无关的出现(.warden-head-newbar #newItemButton), 那处同时写了显式
+          #        height: 28px, 清零纵向 padding 是无害的。写成全局
+          #        `grep -qF 'padding: 0 12px !important'` 会把它一起算进来 ⇒ **误报**。
+          #        所以用 `grep -A4 <选择器行> | grep` 把范围收进规则块。
+          if grep -A4 -F -- '> .warden-filter-toggle button {' .vw.css | grep -qF -- 'padding: 0 12px'; then
+            echo "❌ O1 的筛选按钮又用回了 padding 简写: 纵向内边距被清零, 按钮会塌到 22px(与搜索框差 18px)" >&2
+            fail=1
+          fi
+          grep -A4 -F -- '> .warden-filter-toggle button {' .vw.css \
+            | grep -qF -- 'padding-left: 12px !important' \
+            || { echo "❌ .vw.css 里 O1 的筛选按钮没有只覆盖横向内边距(P 段的修法没落进去)" >&2; fail=1; }
+
           [ "${fail}" -eq 0 ] || exit 1
-          echo "✅ 十九项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11 + 第七批 J6/B段 + 第八批 J16/E段 + 第九批 J15 + 第十批/N段 + 第十一批/O段)均已在实际产物中得到验证"
+          echo "✅ 二十项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11 + 第七批 J6/B段 + 第八批 J16/E段 + 第九批 J15 + 第十批/N段 + 第十一批/O段 + 第十二批/P段)均已在实际产物中得到验证"
 
       - name: Disk space after
         if: always()
