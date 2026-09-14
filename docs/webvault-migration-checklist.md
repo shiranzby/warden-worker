@@ -361,8 +361,10 @@
 > | `push-cloudflare` dispatch（workflow 名 `Build`） | **`34845454752`** | ✅ success | **5m25s** | **18/18 步**；第 8 步 `Verify frontend is our patched build (fail hard)` 绿 |
 >
 > - 产物：`bw_web_vault-v2026.8.6`（artifact id `10347717756`，**35.8 MB**）。
-> - 前端源码：fork `shypwd` = **`e8326b216af`** `e8326b216ae039820ebb7d4ab795e81b28bc8f0f`；
->   warden-worker `main` = **`d26b797`**（CI 第 24 组 + 四处版本默认值 + 收录 6 个 T 段探针 + 2 个引擎/线上探针）。
+> - 前端源码：fork `shypwd` = **`e8326b216ae039820ebb7d4ab795e81b28bc8f0f`**（T 段功能提交）；
+>   warden-worker `main`：**构建时 `head_sha` = `d26b797`**（CI 第 24 组 + 四处版本默认值），
+>   其后两次收尾提交 **`82da1a0`**（上线记录 + 收录 5 个 T 段验收探针 + 2 个引擎/线上探针）与
+>   **`69e4bdf`**（线上截图取证脚本），均带 `[skip ci]`，不入构建。
 > - **线上取证**（走 `-x http://127.0.0.1:7890`）：`vw-version.json` = **`2026.8.6`**；
 >   主 JS 哈希 `cbd08d29774762b2d296` → **`05a80cbf7e5dc88d0603`**（`5482423 B`，上版 `5482582 B`）——
 >   **asset 哈希变了 = 部署生效最硬的证据**；线上 `/css/vaultwarden.css` **95557 B**（上版 91008 B）
@@ -376,6 +378,8 @@
 >   ④ 展开后 **0~600ms 无"关闭帧"**；⑤ 域名行 `alignItems=flex-end`；⑥ 输入框仍 **32px**（S2 居中未被 T 段带坏）；
 >   ⑦ 按钮 `cy=231`(40px) vs 输入框 `cy=230`(32px)；⑧ TOTP 升格**第一帧主码即新码**（`f0="075 400"`=N），
 >   `f0.ghost` 即旧码（`"866 984"`=C）；⑨ 14 帧内**无 `ghost===digits`**；⑩ 主码行**从未退回旧码**；⑪ **0 pageerror**。
+> - **线上视觉取证**（`shot-b16-live.mjs`，只拍设置页、不含保险库条目内容）：外观页下拉**三项可见**
+>   （浅色/深色/使用系统主题）、域名行**输入框与减号按钮同行居中对齐**。
 > - **本机复验**（dev server 8099，慢放 + WebKit 双引擎）：`probe-b16-select-postfix.mjs` **10/10**（含宽屏 4 项桌面行为不变）；
 >   **`probe-b16-select-webkit.mjs` 8/8**（WebKit≈iOS Safari —— **Chromium 复现不出的触摸路径**用它兜底）；
 >   `probe-b16-totp-roll.mjs` **6/6**；`probe-b16-notes.mjs` **6/6**（S2 收窄未误伤备注框，仍 54px）；
