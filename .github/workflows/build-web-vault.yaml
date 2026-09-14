@@ -484,8 +484,57 @@ jobs:
             fail=1
           fi
 
+          # 19) 第十一批 / O 段: 窄屏一批体验修复(用户反馈 7 条)
+          #     ← vault-items.component.html + vault-filter(styles)
+          #       + account.{html,ts} + profile.{html,ts} + change-email.{html,ts}
+          #       + css/vaultwarden.css
+          #     与第十批同理: **不是 L4 迁入的**, 是上线后按反馈新增的, 段标记为「O 段」。
+          #     判据分两处, 缺一不可 —— CSS 落进 .vw.css 只说明样式在, 组件模板必须落进 .main.js:
+          #
+          #     .main.js  'warden-head-newbar' —— O2「新增」搬进表头最右格的新容器 class
+          #     .main.js  'warden-email-row'   —— O5 邮件行(入口按钮就挂在这一行)
+          #
+          #     .vw.css   '第十一批 / O 段'        —— 段横幅(整段有没有被误删)
+          #     .vw.css   '.warden-head-newbar'    —— O2 的定位/互斥规则
+          #     .vw.css   'width 0.45s linear 0.45s' —— O3 右段那 0.45s 的 transition-delay。
+          #               ★ 断言**带 delay 的那一条**, 不断言 `.warden-totp-fill-b`:
+          #                 两段线的 class 是早前批次就有的, 只喊 class 名字等于"O3 没修也能过"。
+          #                 这个字面量在官方基线里是 0 次。
+          #     .vw.css   '.warden-save-inline'    —— O4 行内「保存」
+          #     .vw.css   '.warden-change-email-open' —— O5 入口按钮
+          #     .vw.css   '.warden-cf-actions'     —— O5 那排「继续/取消」(窄屏提到字段上方)
+          #     .vw.css   '--warden-safe-bottom'   —— O6 把底栏高度/安全区抽成 :root 变量。
+          #               ★ 这一条是 O6 的**根**: 底栏与底部留白共源, 只断言那串 calc 的话,
+          #                 有人把两边各写一份字面量、数字碰巧还对, CI 就查不出来了。
+          #     ⚠️ 不要断言 'warden-head-new' 来代表本批: 它是第十批的标记, 且是
+          #        'warden-head-newbar' 的子串, 等于没验。
+          for lit in warden-head-newbar warden-email-row; do
+            grep -qF "${lit}" .main.js \
+              || { echo "❌ 产物 main.js 里找不到第十一批的标记 '${lit}'" >&2; fail=1; }
+          done
+          for lit in '第十一批 / O 段' '.warden-head-newbar' 'width 0.45s linear 0.45s' \
+                     '.warden-save-inline' '.warden-change-email-open' '.warden-cf-actions' \
+                     '--warden-safe-bottom'; do
+            grep -qF "${lit}" .vw.css \
+              || { echo "❌ css/vaultwarden.css 里找不到第十一批的标记 '${lit}'" >&2; fail=1; }
+          done
+          #    ★ 负向守卫 1: H1 那个写死的 74px 必须已经没了 —— 它就是"最后一条被底栏压住
+          #      却滚不动"的成因(不带安全区的机型刚够 74>63, 带安全区的差 23px)。
+          if grep -qF 'padding-bottom: 74px' .vw.css; then
+            echo "❌ O6 又写回了写死的 74px 留白(带 iOS 安全区的机型仍会压住最后一条)" >&2
+            fail=1
+          fi
+          #    ★ 负向守卫 2: O6 的留白规则**必须在 @media (max-width:768px) 里**(表现为缩进)。
+          #      顶格的 `main#main-content {` 会连桌面端一起多留白。
+          if grep -qE '^main#main-content \{' .vw.css; then
+            echo "❌ O6 的底部留白规则写成了全局: 桌面端也会被多留白" >&2
+            fail=1
+          fi
+          grep -qE '^  main#main-content \{$' .vw.css \
+            || { echo "❌ .vw.css 里没有 @media 内的 main#main-content 规则(O6 的留白没落进去)" >&2; fail=1; }
+
           [ "${fail}" -eq 0 ] || exit 1
-          echo "✅ 十八项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11 + 第七批 J6/B段 + 第八批 J16/E段 + 第九批 J15 + 第十批/N段)均已在实际产物中得到验证"
+          echo "✅ 十九项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11 + 第七批 J6/B段 + 第八批 J16/E段 + 第九批 J15 + 第十批/N段 + 第十一批/O段)均已在实际产物中得到验证"
 
       - name: Disk space after
         if: always()
