@@ -202,6 +202,44 @@
 
 ---
 
+> ### ✅ 上线记录 · 第十四批 / R 段（移动端第二轮反馈 10 条，落地 9 条，2026-09-14）
+> 版本号 `2026.8.3 → 2026.8.4`。与第十~十三批同理：**不是 L4 迁入的**，全部来自用户对移动端的反馈。
+> 用户明确"2a/2b/2c/4/6 已 OK"，本批只动 1/3/5/7/8/9/10a；**10b(Authenticator 显示下一代码)只出方案，未实现**。
+>
+> | 步骤 | run | 结果 | 耗时 | 备注 |
+> |---|---|---|---|---|
+> | `Build Web Vault (patched)`（`version=v2026.8.4`） | **`34826968072`** | ✅ success | **5m35s** | 第 10 步 **22 组断言全绿**（本批新增第 22 组） |
+> | `push-cloudflare` dispatch（workflow 名 `Build`） | **`34827505769`** | ✅ success | **4m49s** | |
+>
+> - 前端源码：fork `shypwd` = **`da0f316a6a`**（5 文件：`select.component.{ts,html}` + CSS + 版本号两处）；
+>   warden-worker `main` = **`9785d67`**（CI 第 22 组 + 两处版本默认值 + 收录 `verify-batch14.mjs` 与
+>   `probe-audit-guards.py`）。
+> - **线上验证**：`vw-version.json` = **`2026.8.4`**；主 JS 哈希 `aa965e2a7f4296dfc944` →
+>   **`3d3a80b553fea673c01e`**（5480529 B）；`/css/vaultwarden.css` **83455 B 与本地源码逐字节 `cmp` 一致**，
+>   内含 `R. 第十四批` / `.warden-select-open` / R1/R4/R5/R6 四条选择器；线上 `main.js` 里
+>   `warden-select-open` **1 次**。
+> - **线上运行时 14/14 PASS**（`verify-batch14.mjs`，读数与本地**完全一致**：8 个下拉全部"点箭头展开/再点收起"、
+>   输入框壳与按钮同高 40px、product-switcher `display:none`、页头新增隐藏且可见新增=1、
+>   聚焦后 box-shadow 仍 `none` 而 1px 边框保留、三处留白 8/16/16px）；**0 page error**。
+> - 用 2 步 dispatch（只留 `--retry 3`）⇒ **只触发 1 个 run**；push `main` 那次**带 `[skip ci]`**。
+>
+> #### 🔴 本批两个必须记住的教训
+>
+> 1. **问题1/3 的真根因是"signal 当布尔用"**：`NgSelectComponent.isOpen` 在 ng-select v21 是
+>    `ModelSignal<boolean>`(**函数**)，`if (ngSelect.isOpen) close() else open()` 恒为真 ⇒ 永远只 close()，
+>    面板永远打不开。**而模板里那个 class 照样在产物里**（静态 grep 看不出来）。现已改为直接调组件自己的
+>    `toggle()`。⇒ **凡"是值还是信号"分不清的 API，先查 `.d.ts` 再写**。
+> 2. **CI 负向守卫差点是"哑弹"**：第一版写成 `grep -qE '^main#main-content app-header product-switcher'`，
+>    **漏抄真实规则里的 `header` 一词** ⇒ 永远不匹配。离线证伪（把规则从 @media 内提成顶格，即制造
+>    它本该拦住的那次误改）时**照样通过**。现改为"守卫字面量复用正向数组 + `grep -nF` 判 `行号:` 后是否
+>    紧跟非空白"，并已**逐条证伪 6/6**。⇒ **每加一条负向守卫，提交前必须离线证伪一次**；
+>    审计脚本 `.deploycheck/probe-audit-guards.py` 已入库（它能区分"真哑弹"和"禁止出现类常态守卫"）。
+>
+> **回滚**：`git revert` fork 的 `da0f316a6a` + `BW_WEB_VERSION` 改回 `v2026.8.3`（+ 同步 lock 与
+> `inputs.version` 默认值），再重跑 `Build`。
+
+---
+
 > ### ✅ 遗留已清除：`deploy-dev.yaml` 已删除（2026-09-14）
 > `.github/workflows/deploy-dev.yaml`（`name: Deploy Dev`）与 `push-cloudflare.yaml` 共用同一段取产物逻辑，
 > 但停留在 P1 之前，有三个坑：① 同样 `tar -xzf ... -C public/` 而缺 `mkdir -p public`；
