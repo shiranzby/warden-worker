@@ -15,9 +15,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "产物标签 / artifact 名 (如 v2026.8.8)。会与源码里的版本核对, 不一致直接失败"
+        description: "产物标签 / artifact 名 (如 v2026.8.9)。会与源码里的版本核对, 不一致直接失败"
         required: true
-        default: "v2026.8.8"
+        default: "v2026.8.9"
 
 env:
   # 我们的前端源码 fork。定制已直接落在源码里(见 fork 的 shypwd 分支)。
@@ -977,8 +977,59 @@ jobs:
             fi
           done
 
+          # 27) 第十九批 / W 段: 移动端第七轮反馈(用户验收第十八批后提的 2 条, 全部落地)
+          #     ← apps/web/src/css/vaultwarden.css                              (W1 / W2)
+          #
+          #     ⚠️ 本批是**纯 CSS**, 没有动任何 .ts / .html —— 所以本组**没有 .main.js 的判据**,
+          #        这不是漏写: 纯 CSS 批次本来就没有稳定的产物字面量可断。
+          #        运行期验收交给 `.deploycheck/probe-w19-verify.mjs`(窄屏 dev server)与
+          #        `probe-w19-live.mjs`(线上)。
+          #
+          #     🔴 这两条的来历值得记下来 —— 它们都是"判据取错了对象"造成的漏网:
+          #        · W1: V 段断言的是**输入框本体**(早就统一 38px, 全绿),
+          #              而用户看到的是**带边框的可见框**(名称 40 / 文本 64), 差在外层
+          #              `has-[textarea]:!tw-py-3` 的上下各 12px。**判据要对着用户看见的东西量。**
+          #        · W2: V 段断言的是"新增按钮 32px == 单个 toggle 32px",
+          #              而用户看到的是**整条切换条**(42)与按钮的**底边/字号**不一致。
+          #
+          #     .vw.css   'W 段. 移动端第七轮反馈(第十九批)' —— 段横幅(vaultwarden.css 原样发布, 注释不剥)。
+          #     .vw.css   W1 的 `bit-dialog:has(tools-send-form) bit-form-field div:has(> textarea)`
+          #               —— 收窄到发送表单是**必须的**: 条目编辑对话框的多行备注是**故意**让它高的,
+          #                  无条件清零会一起压扁 ⇒ 这个选择器本身就是要断的东西。
+          #     .vw.css   W2 的 `--warden-filters-new-fs: 14px`
+          #               —— W2 与 V3b 是**同一个选择器**(V3b 里还写着 `height: 32px !important`),
+          #                  靠"两条 !important 特异性相同 ⇒ 源码顺序后者胜"覆盖。
+          #                  光断选择器看不出本批有没有落地, 所以断这个本批新增的自定义属性
+          #                  (上一版产物里**不可能**有它)。
+          #     🔴 所有字面量一律带 `--`(本批含 '(' / ')' / ':' / '.' / '>' 等)。
+          #       🔴🔴 注意 `:has(> textarea[bitInput])` 里的 `[bitInput]` **不是可选的修饰**:
+          #          对方是 `has-[textarea]:!tw-py-3`(一个类 + !important), 两条都带 !important 时
+          #          **比权重、与书写先后无关**; 少了这个属性选择器本条只有 (0,0,5) 会被压掉
+          #          ⇒ 写成 `div:has(> textarea)` 就是一颗"看着生效其实没生效"的哑弹。
+          #          所以判据必须断**带属性**的完整写法(已用 CSSOM insertRule 实测: 不带=62px 无效)。
+          W_CSS_LITS=('W 段. 移动端第七轮反馈(第十九批)' \
+                      'bit-dialog:has(tools-send-form) bit-form-field div:has(> textarea[bitInput])' \
+                      '--warden-filters-new-fs: 14px')
+          for lit in "${W_CSS_LITS[@]}"; do
+            grep -qF -- "${lit}" .vw.css \
+              || { echo "❌ css/vaultwarden.css 里找不到第十九批的标记 '${lit}'" >&2; fail=1; }
+          done
+          #    ★ 负向守卫: 两条都**只在窄屏生效** —— 顶格 = 桌面端跟着遭殃:
+          #      W1 会把桌面端发送表单里 textarea 的外层内边距清零(桌面端刻意保留多行高度);
+          #      W2 会把桌面端那颗本已隐藏的新增按钮撑满并放大字号。
+          #      判据沿用第十四~十八批; 段横幅单独排除(它本来就顶格)。
+          for lit in "${W_CSS_LITS[@]}"; do
+            case "${lit}" in
+              'W 段. 移动端第七轮反馈(第十九批)') continue ;;
+            esac
+            if grep -nF -- "${lit}" .vw.css | grep -qE '^[0-9]+:[^[:space:]]'; then
+              echo "❌ 第十九批的规则 '${lit}' 存在顶格(全局)写法: 桌面端也会被改掉" >&2
+              fail=1
+            fi
+          done
+
           [ "${fail}" -eq 0 ] || exit 1
-          echo "✅ 二十六项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11 + 第七批 J6/B段 + 第八批 J16/E段 + 第九批 J15 + 第十批/N段 + 第十一批/O段 + 第十二批/P段 + 第十三批/Q段 + 第十四批/R段 + 第十五批/S段 + 第十六批/T段 + 第十七批/U段 + 第十八批/V段)均已在实际产物中得到验证"
+          echo "✅ 二十七项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11 + 第七批 J6/B段 + 第八批 J16/E段 + 第九批 J15 + 第十批/N段 + 第十一批/O段 + 第十二批/P段 + 第十三批/Q段 + 第十四批/R段 + 第十五批/S段 + 第十六批/T段 + 第十七批/U段 + 第十八批/V段 + 第十九批/W段)均已在实际产物中得到验证"
 
       - name: Disk space after
         if: always()

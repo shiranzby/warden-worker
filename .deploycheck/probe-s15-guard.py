@@ -48,7 +48,7 @@ TAR = WORK / "bw_web_vault.tar.gz"
 #
 #   ⚠️ 与"漏抄一个词"那条教训(MEMORY ④/第十四批)是**同一类错**, 只是方向相反:
 #      那一次是守卫自己漏词(永远不匹配), 这一次是证伪脚本漏改(永远找不到)。
-BATCHES = ["R_CSS_LITS", "S_CSS_LITS", "T_CSS_LITS", "U_CSS_LITS", "V_CSS_LITS"]
+BATCHES = ["R_CSS_LITS", "S_CSS_LITS", "T_CSS_LITS", "U_CSS_LITS", "V_CSS_LITS", "W_CSS_LITS"]
 
 
 def _strip_line_continuations(text: str) -> str:

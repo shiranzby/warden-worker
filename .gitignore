@@ -83,6 +83,9 @@ sql/global_domains_seed.sql
 # ↑ 第十八批(V 段) 窄屏验收(390×844, dev server 8099): 五题逐条断, 含负向回归
 !.deploycheck/probe-v18-live.mjs
 # ↑ 线上(shypwd.cc.cd)最终验收: V 段五题 + 应用内深色主题, 走 7890 代理
+!.deploycheck/probe-w19-verify.mjs
+# ↑ 第十九批(W 段) 验收: 同一脚本跑两个环境 —— 不带 WARDEN_TEST_PROXY 走 8099 dev server,
+#   带上则走线上(本机直连不通, 必须代理)。判据量的是"用户看见的框", 不是控件本体。
 
 # Coding assistant
 .ace-tool/
