@@ -17,7 +17,7 @@ on:
       version:
         description: "产物标签 / artifact 名 (如 v2026.8.2)。会与源码里的版本核对, 不一致直接失败"
         required: true
-        default: "v2026.8.3"
+        default: "v2026.8.4"
 
 env:
   # 我们的前端源码 fork。定制已直接落在源码里(见 fork 的 shypwd 分支)。
@@ -602,8 +602,67 @@ jobs:
             fail=1
           fi
 
+          # 22) 第十四批 / R 段: 移动端第二轮反馈(用户反馈 10 条, 落地 9 条)
+          #     ← libs/components/src/select/select.component.html  (问题1/3: 点箭头即展开)
+          #       + libs/components/src/select/select.component.ts    (同上: 走 toggle())
+          #       + css/vaultwarden.css  (R 段: R0 触摸热点 + R1..R6 窄屏留白/隐藏)
+          #     与第十一批/第十三批同理: **不是 L4 迁入的**, 是上线后按用户反馈新增的, 段标记「R 段」。
+          #
+          #     .main.js  'warden-select-open' —— 覆盖在原生箭头上的透明触摸热点按钮(模板静态 class)。
+          #               ★ 之所以自己加按钮: ng-select 原生箭头是 25×20px 的 <span>, 依赖真机把
+          #                 touchstart/touchend **合成** click, 那一串被吞就表现为"点箭头没反应"。
+          #               ⚠️ 静态 grep 只能证明"热点还在", **证明不了行为**: 本批曾把
+          #                 `if (ngSelect.isOpen)` 当布尔用 —— 而那在 v21 是 ModelSignal(函数),
+          #                 恒为真 ⇒ 永远只 close()、面板永远打不开, 但模板里的 class 照样在产物里。
+          #                 行为由 .deploycheck/verify-batch14.mjs 在浏览器里断言(点开+再点收起),
+          #                 CI 这层不重做。
+          #     .vw.css   'R. 第十四批'  —— 段横幅
+          #     .vw.css   '.warden-select-open' —— R0(全局, 两条窄屏守卫都不覆盖它)
+          #     .vw.css   R1/R2/R4/R3/R5/R6 的六条选择器
+          #     🔴 所有字面量都带 `--`: 选择器里有 `-`/`.` 开头的, 不带会被 grep 当选项(fail-fast 的教训)。
+          for lit in 'warden-select-open'; do
+            grep -qF -- "${lit}" .main.js \
+              || { echo "❌ 产物 main.js 里找不到第十四批的标记 '${lit}'" >&2; fail=1; }
+          done
+          R_CSS_LITS=('R. 第十四批' '.warden-select-open' \
+                      'main#main-content .tw-mb-2.tw-pb-2\.5' \
+                      'main#main-content .tw-grid.tw-gap-16' \
+                      'main#main-content bit-search form:focus-within' \
+                      'main#main-content bit-form-field div:has(> textarea)' \
+                      'main#main-content app-header header product-switcher' \
+                      'main#main-content app-header tools-new-send-dropdown')
+          for lit in "${R_CSS_LITS[@]}"; do
+            grep -qF -- "${lit}" .vw.css \
+              || { echo "❌ css/vaultwarden.css 里找不到第十四批的标记 '${lit}'" >&2; fail=1; }
+          done
+          #    ★ 负向守卫: R1~R6 **必须**写在 @media (max-width:768px) 内 —— 在本文件里表现为
+          #      规则行**有缩进**; 顶格 = 全局 ⇒ 桌面端跟着遭殃:
+          #        R1 打乱桌面端所有设置页的标题节奏 / R2 压掉桌面端密钥页的段间距 /
+          #        R3 **去掉桌面端的 focus 环**(可访问性回退) / R4 压扁桌面端所有多行 textarea /
+          #        R5+R6 藏掉桌面端唯一的产品切换入口与页头「新增」。
+          #      只有 R0(`.warden-select-open`) 刻意**不**参与守卫: 它就是要全局生效,
+          #      否则那个 <button> 在桌面端会退化成无定位的空按钮。
+          #
+          #    🔴 判据写法踩过的坑(务必照抄现写法, 不要改回手写正则):
+          #      第一版把守卫写成 `grep -qE '^main#main-content app-header product-switcher'` ——
+          #      **漏抄了真实的 `header` 一词**, 于是永远不匹配。离线证伪(把该规则从 @media 内
+          #      提成顶格)时它**照样通过** —— 一个纯粹的哑弹: 谁把规则误写成全局都拦不住。
+          #      现在改为: ①守卫遍历的字面量**直接复用上面那个数组**(单一口径, 结构上不可能漂移);
+          #      ②判据用 `grep -nF` 的输出 —— 命中行若在 `行号:` 之后**紧跟非空白字符**, 即该处
+          #      顶格(全局); 所有命中都带缩进才算合规。既不依赖缩进几格, 也不写正则。
+          #      ⚠️ 每批加守卫时都要**离线证伪一次**(故意改成顶格, 确认它真的报错)再提交。
+          for lit in "${R_CSS_LITS[@]}"; do
+            case "${lit}" in
+              'R. 第十四批' | '.warden-select-open') continue ;;
+            esac
+            if grep -nF -- "${lit}" .vw.css | grep -qE '^[0-9]+:[^[:space:]]'; then
+              echo "❌ 第十四批的规则 '${lit}' 存在顶格(全局)写法: 桌面端也会被藏掉/被压掉" >&2
+              fail=1
+            fi
+          done
+
           [ "${fail}" -eq 0 ] || exit 1
-          echo "✅ 二十一项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11 + 第七批 J6/B段 + 第八批 J16/E段 + 第九批 J15 + 第十批/N段 + 第十一批/O段 + 第十二批/P段 + 第十三批/Q段)均已在实际产物中得到验证"
+          echo "✅ 二十二项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11 + 第七批 J6/B段 + 第八批 J16/E段 + 第九批 J15 + 第十批/N段 + 第十一批/O段 + 第十二批/P段 + 第十三批/Q段 + 第十四批/R段)均已在实际产物中得到验证"
 
       - name: Disk space after
         if: always()
