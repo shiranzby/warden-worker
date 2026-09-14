@@ -73,6 +73,8 @@ sql/global_domains_seed.sql
 # ↑ 第二引擎(WebKit≈iOS Safari)复验 T1: Chromium 复现不出的触摸路径, 用 WebKit 兜底
 !.deploycheck/probe-b16-live.mjs
 # ↑ 线上(shypwd.cc.cd)最终验收: T3 升格顺序 + T1 展开 + T2 几何, 走 7890 代理
+!.deploycheck/shot-b16-live.mjs
+# ↑ 线上截图取证(只拍设置页, 不含保险库条目内容); 图落 shots/ 不入库
 
 # Coding assistant
 .ace-tool/
