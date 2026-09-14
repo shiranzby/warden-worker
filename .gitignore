@@ -79,6 +79,10 @@ sql/global_domains_seed.sql
 # ↑ 线上(shypwd.cc.cd)最终验收: T3 升格顺序 + T1 展开 + T2 几何, 走 7890 代理
 !.deploycheck/shot-b16-live.mjs
 # ↑ 线上截图取证(只拍设置页, 不含保险库条目内容); 图落 shots/ 不入库
+!.deploycheck/probe-v18-verify.mjs
+# ↑ 第十八批(V 段) 窄屏验收(390×844, dev server 8099): 五题逐条断, 含负向回归
+!.deploycheck/probe-v18-live.mjs
+# ↑ 线上(shypwd.cc.cd)最终验收: V 段五题 + 应用内深色主题, 走 7890 代理
 
 # Coding assistant
 .ace-tool/

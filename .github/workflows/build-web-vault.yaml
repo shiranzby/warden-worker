@@ -15,9 +15,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "产物标签 / artifact 名 (如 v2026.8.7)。会与源码里的版本核对, 不一致直接失败"
+        description: "产物标签 / artifact 名 (如 v2026.8.8)。会与源码里的版本核对, 不一致直接失败"
         required: true
-        default: "v2026.8.7"
+        default: "v2026.8.8"
 
 env:
   # 我们的前端源码 fork。定制已直接落在源码里(见 fork 的 shypwd 分支)。
@@ -866,6 +866,10 @@ jobs:
           #        'warden-tabbar'(更早) 来代表本批 —— 它们在上一版产物里就已存在, 等于"没修也能过"。
           #        ⚠️ 尤其 'warden-tabbar': U3 的新写法是 `body:has(bit-dialog) #warden-tabbar`,
           #           而裸的 'warden-tabbar' 从更早的批次起就在 `.vw.css` 里 —— 拿它当判据必假阳性。
+          #        ⚠️ 第十八批/V 段把 U3 这条**收窄**成了 `:not(:has(tools-send-form))`
+          #           (发送对话框不再藏底栏), 所以这里的字面量**同步跟上**。
+          #           这是"规则本身被后续批次改了"的正常演化 —— U3 断的是"这条规则还在",
+          #           不是"它的字面量永远不变"。改窄屏规则时记得回头看一眼本组。
           #     🔴 所有字面量一律带 `--`(本批含 '(' / ':' / '.' / '>' / '"' 等,
           #        不带会被 grep 当选项或语法错 —— fail-fast 的教训, 第十四批已栽过一次)。
           for lit in 'pressStartedOnField' 'onFieldPointerup' 'stepMaxAccessCount' \
@@ -877,7 +881,7 @@ jobs:
           U_CSS_LITS=('U 段. 移动端第五轮反馈(第十七批)' \
                       'main#main-content app-header header:has(bit-tab-nav-bar)' \
                       'bit-dialog > section > header' \
-                      'body:has(bit-dialog) #warden-tabbar' \
+                      'body:has(bit-dialog):not(:has(tools-send-form)) #warden-tabbar' \
                       'bit-dialog textarea[formcontrolname="text"]' \
                       'main#main-content tools-send-list > [slot="filters"]')
           for lit in "${U_CSS_LITS[@]}"; do
@@ -900,8 +904,81 @@ jobs:
             fi
           done
 
+          # 26) 第十八批 / V 段: 移动端第六轮反馈(用户反馈 5 题, 全部落地)
+          #     ← libs/tools/send/send-ui/src/send-list/send-list.component.ts   (问题4: 搜索栏改由「库里有 Send」驱动)
+          #       + apps/web/src/app/tools/send/send.component.{ts,html}          (问题4: hasAnySends 透传)
+          #       + libs/tools/send/send-ui/src/send-form/components/options/send-options.component.{html,ts}
+          #                                                                      (问题2: 「附加选项」可折叠)
+          #       + apps/web/src/css/vaultwarden.css                              (V1~V5)
+          #     与第十~十七批同理: **不是 L4 迁入的**, 是上线后按用户反馈新增的, 段标记「V 段」。
+          #
+          #     .main.js  'hasAnySends' —— 问题4 的实现核心: `send-list` 新增的 input。
+          #               `showSearchBar` 原本只看**筛过的**列表, 于是切到「文件 Send」而零命中时
+          #               会把搜索栏整个卸载; 现在多了 `hasAnySends()`(未筛的"库里有东西")这一项。
+          #               它作为 input 别名进组件定义(`inputs:{hasAnySends:...}`), **不参与 terser 混淆**, 可靠。
+          #     .main.js  'warden-send-options-toggle' / 'warden-send-options-caret'
+          #               —— 问题2「附加选项」折叠开关的钩子类(模板静态 class, 编进 consts 数组)。
+          #     .main.js  'warden-send-filters-new'
+          #               —— 问题3 切换行右侧新「新增 Send」的钩子类。
+          #     ⚠️ 这三个类名同时也是 CSS 选择器, 但**只断 CSS 是不够的**: CSS 写了却没人挂类等于没做。
+          #        两层都断, 理由同 S/T 段(TS 改了 / 模板删了 ⇒ 功能静默消失)。
+          #     ⚠️ 别拿 'bitDisclosureTriggerFor' 代表本批 ——
+          #        `admin-console/.../invite-members-dialog.component.html`(组织管理)早就在用同一个
+          #        指令, 上一版产物里就有 ⇒ 假阳性, "没修也能过"。
+          #
+          #     .vw.css   'V 段. 移动端第六轮反馈(第十八批)' —— 段横幅(vaultwarden.css 原样发布, 注释不剥)。
+          #     .vw.css   V1/V2/V3a/V3b/V4 的关键选择器 + V5 的四个深色分支锚点。
+          #     ⚠️ **不要**拿 'warden-totp-next'(S 段) / 裸 'warden-tabbar'(更早) 代表本批 —— 它们上一版就有。
+          #     🔴 所有字面量一律带 `--`(本批含 '(' / ')' / ':' / '.' / '>' / '+' / '#' 等,
+          #        不带会被 grep 当选项或语法错 —— fail-fast 的教训, 第十四批已栽过一次)。
+          for lit in 'hasAnySends' 'warden-send-options-toggle' \
+                     'warden-send-options-caret' 'warden-send-filters-new'; do
+            grep -qF -- "${lit}" .main.js \
+              || { echo "❌ 产物 main.js 里找不到第十八批的标记 '${lit}'" >&2; fail=1; }
+          done
+          V_CSS_LITS=('V 段. 移动端第六轮反馈(第十八批)' \
+                      '--warden-line-h: 38px' \
+                      'bit-dialog:has(tools-send-form) > section > header' \
+                      'bit-dialog:has(tools-send-form) > section > footer:has(> button + button) > button' \
+                      'body:has(bit-dialog):not(:has(tools-send-form)) #warden-tabbar' \
+                      'main#main-content tools-send-table table thead th:last-child' \
+                      'main#main-content tools-send-list > .warden-send-filters > .warden-send-filters-new' \
+                      'main#main-content tools-send-list > tools-send-search' \
+                      'html.theme_dark .warden-totp-code' \
+                      'html.theme_dark .warden-tabbar' \
+                      'html.theme_dark .warden-acctcard' \
+                      'html.theme_dark .warden-auth-search')
+          for lit in "${V_CSS_LITS[@]}"; do
+            grep -qF -- "${lit}" .vw.css \
+              || { echo "❌ css/vaultwarden.css 里找不到第十八批的标记 '${lit}'" >&2; fail=1; }
+          done
+          #    ★ 负向守卫: V 段里"只在窄屏生效"的那些规则绝不能顶格(顶格 = 桌面端跟着遭殃):
+          #      V1 会把桌面端对话框里所有带后缀的字段容器钉成 38px /
+          #      V2 会把桌面端发送表单对话框的页头整个藏掉、把页脚拽进正文 /
+          #      V3a 会把桌面端「选项」列钉成 56px 右对齐 /
+          #      V3b 会把桌面端切换行拉成 flex 并顶出那颗本该只在窄屏出现的「新增 Send」/
+          #      V4 会在桌面端多出 6px 间距。
+          #      ⚠️ V5(`html.theme_dark ...`)与 `:root` 的 `--warden-line-h` **本来就该全局**:
+          #         前者只在应用深色主题下生效、后者只是个自定义属性 —— 它们**不参与**本守卫。
+          #      判据沿用第十四~十七批: `grep -nF` 命中行若在 `行号:` 之后**紧跟非空白字符**
+          #      即该处顶格(全局)。命中行取的是**原文**(不受注释影响, 段横幅单独排除)。
+          for lit in "${V_CSS_LITS[@]}"; do
+            # 只有"窄屏专属"的规则参与守卫: 段横幅、V5 的深色分支(`html.theme_dark ...`)、
+            # 以及 `:root` 里的变量声明都**本来就该全局**。
+            # ⚠️ 段横幅写成字面量而不是 `${...}` 变量: `.deploycheck/probe-s15-guard.py`
+            #    会把这段 `case` 的跳过模式**解析出来**用于离线证伪, 变量引用它认不出。
+            #    (单次使用, 变量本来也没带来什么好处。)
+            case "${lit}" in
+              'V 段. 移动端第六轮反馈(第十八批)'|'html.theme_dark '*|'--warden-'*) continue ;;
+            esac
+            if grep -nF -- "${lit}" .vw.css | grep -qE '^[0-9]+:[^[:space:]]'; then
+              echo "❌ 第十八批的规则 '${lit}' 存在顶格(全局)写法: 桌面端也会被改掉" >&2
+              fail=1
+            fi
+          done
+
           [ "${fail}" -eq 0 ] || exit 1
-          echo "✅ 二十五项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11 + 第七批 J6/B段 + 第八批 J16/E段 + 第九批 J15 + 第十批/N段 + 第十一批/O段 + 第十二批/P段 + 第十三批/Q段 + 第十四批/R段 + 第十五批/S段 + 第十六批/T段 + 第十七批/U段)均已在实际产物中得到验证"
+          echo "✅ 二十六项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11 + 第七批 J6/B段 + 第八批 J16/E段 + 第九批 J15 + 第十批/N段 + 第十一批/O段 + 第十二批/P段 + 第十三批/Q段 + 第十四批/R段 + 第十五批/S段 + 第十六批/T段 + 第十七批/U段 + 第十八批/V段)均已在实际产物中得到验证"
 
       - name: Disk space after
         if: always()
