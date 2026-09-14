@@ -8,7 +8,7 @@
 
 | 类别 | 是否入库 | 例子 |
 |---|---|---|
-| **回归脚本**（真正的知识资产） | ✅ 入库（逐个白名单） | `b8-lib.mjs`、`verify-batch10.mjs`、`verify-batch11.mjs`、`verify-j15.mjs`、`verify-p7-browser.mjs`、`devserver-b8.config.js`、`poll-progress.sh`、`run-artifact-asserts.py` |
+| **回归脚本**（真正的知识资产） | ✅ 入库（逐个白名单） | `b8-lib.mjs`、`verify-batch10.mjs`、`verify-batch11.mjs`、`verify-batch12.mjs`、`verify-j15.mjs`、`verify-p7-browser.mjs`、`devserver-b8.config.js`、`poll-progress.sh`、`run-artifact-asserts.py` |
 | 产物快照 / 离线包 / 抓下来的 bundle | ❌ 忽略（GB 级、可再生） | `p1/`、`sh-test/`、`patched/`、`ours/`、`*.zip`、`*.tar.gz`、`dvmain*.js` |
 | 凭据与登录态 | ❌ 忽略 | `.env.local`、`shypwd-auth.json` |
 | 其余一次性诊断脚本 | ❌ 忽略 | `diag-*.mjs`、`probe-*.mjs`、`shot-*.mjs` … （⚠️ 这批多数带明文凭据，见下） |
@@ -97,4 +97,4 @@ WARDEN_TEST_BASE=https://shypwd.cc.cd WARDEN_TEST_PROXY=http://127.0.0.1:7890 \
 ## 相关文档
 
 - 权威记录：`../docs/webvault-migration-checklist.md`（每批的改法、踩坑、上线 run、线上读数）
-- CI 侧的产物断言在 `../.github/workflows/build-web-vault.yaml`（**19 组**，不依赖本目录）
+- CI 侧的产物断言在 `../.github/workflows/build-web-vault.yaml`（**20 组**，不依赖本目录）

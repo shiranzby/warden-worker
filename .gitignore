@@ -39,6 +39,7 @@ sql/global_domains_seed.sql
 !.deploycheck/b8-lib.mjs
 !.deploycheck/verify-batch10.mjs
 !.deploycheck/verify-batch11.mjs
+!.deploycheck/verify-batch12.mjs
 !.deploycheck/verify-j15.mjs
 !.deploycheck/verify-p7-browser.mjs
 !.deploycheck/devserver-b8.config.js

@@ -10,7 +10,13 @@ INTERVAL="${3:-30}"
 ENV_FILE="$(dirname "$0")/.env.local"
 if [ -f "$ENV_FILE" ]; then
   while IFS='=' read -r k v; do
-    [ -n "$k" ] && [ -z "${!k:-}" ] && export "$k=$v"
+    # 跳过空行与注释行, 且只接受 shell 变量名形态的 key。
+    # ⛔ 不能只判 `[ -n "$k" ]`: `.env.local` 开头是几行 `#` 注释,
+    #    朴素写法会把整行注释当成变量名去 export ⇒ "invalid variable name" 直接中断,
+    #    脚本永远拿不到 GH_PAT(2026-09-14 踩到)。
+    case "$k" in ''|\#*|*[!A-Za-z0-9_]*) continue ;; esac
+    v="${v%$'\r'}"                       # Windows 上写过的文件可能带 CRLF
+    [ -z "${!k:-}" ] && export "$k=$v"
   done < "$ENV_FILE"
 fi
 PAT="${GH_PAT:?需要 GH_PAT —— 请写在 .deploycheck/.env.local 或直接 export}"

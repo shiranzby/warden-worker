@@ -1,7 +1,7 @@
 # L4 → 源码 迁移对照清单
 
 > 生成 2026-09-13 ｜ 对照对象：`custom/custom.js`（**1983 行**）+ `custom/custom.css`（**1279 行**）—— 两者已随 P7 退役
-> **当前进度（2026-09-14）**：**P0–P7 全部完成**。源码侧共 **11 批**提交（每批都带运行期验证 + 产物级 CI 断言，现 **19 组**），
+> **当前进度（2026-09-14）**：**P0–P7 全部完成**。源码侧共 **12 批**提交（每批都带运行期验证 + 产物级 CI 断言，现 **20 组**），
 > P7 已删 `custom/`（3262 行）与 CI 注入步骤，前端切到 **`v2026.8.1`**（fork `shiranzby/vw_web_builds@shypwd`；
 > `v2026.8.0` 是迁移基线，`v2026.8.1` 是第十一批起为"上线可辨识"而升的 patch 位 —— 见 §3 第十一批 ⑦）。
 > 状态：⬜ 未开始 ｜ 🟡 进行中 ｜ ✅ 已完成 ｜ ~~删除线~~ = 已退役
@@ -151,6 +151,28 @@
 >    > 才能筛出真正的 `❌`（`##[error]Process completed with exit code 1` 只告诉你"失败了"）。
 >
 > **回滚**：`git revert` fork 的 `633854e640` 与 `0409832f46` + `BW_WEB_VERSION` 改回 `v2026.8.0` + 重跑 `Build`。
+
+---
+
+> ### ✅ 上线记录 · 第十二批 / P 段（搜索框 ↔ 筛选按钮 等高，2026-09-14）
+> 版本号 `2026.8.1 → 2026.8.2`（沿用"升 patch 位让版本号自己成为上线判据"的做法）。
+>
+> | 步骤 | run | 结果 | 耗时 | 备注 |
+> |---|---|---|---|---|
+> | `Build Web Vault (patched)`（`version=v2026.8.2`） | **`34801588759`** | ✅ success | **5m46s** | 第 10 步 **20 组断言全绿** → 说明第 20 组的判据在**真实产物**上成立 |
+> | `push-cloudflare` dispatch（workflow 名 `Build`） | **`34801965160`** | ✅ success | **4m02s** | |
+>
+> - 前端源码：fork `shypwd` = **`e0a1f1a230`**（单文件 CSS 改动 + 版本号）；
+>   warden-worker `main` = **`2ca708b`**（CI 第 20 组 + 两处版本默认值）。
+> - **线上验证**：`vw-version.json` = **`2026.8.2`**；`/css/vaultwarden.css` 里那条规则已经是
+>   `padding-left: 12px !important` / `padding-right: 12px !important`，
+>   旧的 `padding: 0 12px` **在该规则块内已消失**。
+> - **线上运行时 8/8 PASS**（`verify-batch12.mjs`）+ **第十一批回归 56/56 PASS**，
+>   读数与本地**完全一致**（搜索框 40px / 按钮 40px，Δ=0）；**线上 0 console error、0 CSP 噪声**。
+> - 用 3 步 dispatch（只留 `--retry 3`，不用 `-o /dev/null`）⇒ **只触发 1 个 run**，没有再出现上批的重复触发。
+>
+> **回滚**：`git revert` fork 的 `e0a1f1a230` + `BW_WEB_VERSION` 改回 `v2026.8.1`（+ 同步 lock 与
+> `inputs.version` 默认值），再重跑 `Build`。
 
 ---
 
@@ -1288,6 +1310,74 @@ run 明细与踩的两个坑见 §1 的「上线记录 · 第十一批 / O 段�
 
 **回滚**：`git revert` fork 的 `633854e640`（功能）与 `0409832f46`（版本号），
 `BW_WEB_VERSION` 改回 `v2026.8.0`（+ 同步 lock 与 `inputs.version` 默认值），再重跑 `Build`。
+
+
+### 第十二批已落地：搜索框 ↔ 筛选按钮 等高 / P 段（fork 提交 `e0a1f1a230`）
+
+> 与第十/十一批同理：**不是 L4 迁入的**，来自上线后的用户反馈。段标记续「O 段」用「P 段」。
+
+#### ① 反馈 → 改法
+
+| # | 反馈 | 改法 | 落点 |
+|---|---|---|---|
+| **P1** | 密码库页的「筛选」按钮与「搜索密码库」表单**高度不统一** | O1 那条"把按钮收回内联尺寸"的规则里写的是 `padding: 0 12px !important`（**简写** ⇒ 纵向被一并清零）→ 改成只覆盖 `padding-left/right`，纵向交还 `bitButton` | `css/vaultwarden.css`（单文件） |
+
+#### ② 根因：一个 `padding` 简写 = 18px
+
+```
+搜索框  bitFieldContainer(size=base) → tw-min-h-10                  = 40px
+按钮    bitButton        (default)   → pt/pb(0.625rem - 1px) = 9px
+                                        + 上下各 1px 边框
+                                        + tw-text-sm/5 = 20px 行高  = 40px   ← 本来就一致
+```
+
+O1 为了让按钮不再是 `block` 整宽，写了 `padding: 0 12px !important`（本意只把横向 `px-4`=16px 收成 12px）。
+简写把**纵向**也清成了 0 ⇒ 按钮只剩 `1 + 20 + 1 = 22px`，比搜索框矮 **18px** —— 用户一眼看到的就是这个。
+
+修法（**只覆盖横向**，纵向留给 `bitButton` 自己，上游调尺寸时两边一起走）：
+
+```css
+padding-left: 12px !important;
+padding-right: 12px !important;
+```
+
+> ⚠️ 别改成写死 `9px` 或 `height: 40px`：那是把"设计系统里的一致"换成魔数，上游一调尺寸又会错位。
+
+#### ③ 为什么 56 项断言没拦住它（本批最值得记的一条）
+
+O1 原来的断言是「搜索框与筛选开关**垂直中心差 < 8px**」。而矮按钮被 flex 的 `align-items: center`
+居中之后，**中心自然就是齐的** ⇒ 22px vs 40px 照样 PASS。
+**并排元素的验收必须直接断尺寸**（外框高度 |Δ| ≤ 1px），中心对齐只能当补充条件。
+本批补上 P1（高度相等）与 P5（纵向 padding > 0），判据取**外框**而非内容盒 —— 用户看到的是外框。
+
+#### ④ 负向守卫必须限定在规则块内
+
+`padding: 0 12px !important` 在 CSS 里**还有一处无关的出现**（`.warden-head-newbar #newItemButton`）。
+那处同时写了 `height: 28px`，清零纵向是**无害**的（本仓库另有 3 处同类：`.warden-select-toggle`、
+`.warden-subnav a`、`.warden-acct-acts button`，都有显式 height）。
+所以全局 `grep -qF 'padding: 0 12px !important'` 会**误报**。CI 第 20 组用
+`grep -A4 -F -- '> .warden-filter-toggle button {' .vw.css | grep` 把范围收进规则块。
+
+> ★ **判"有意 vs bug"的通用判据**：看同一条规则里有没有**显式 `height`**。
+> 有高度 ⇒ 清纵向无害；没有高度（靠自然高度撑开）⇒ 一清就塌。
+
+#### ⑤ 验证
+
+- **运行期** `.deploycheck/verify-batch12.mjs`（8 项）：修前 40 vs **22**（FAIL 2 项），修后 40 vs 40；
+- **回归**：第十一批 56/56 PASS（本地与线上各跑一次）；
+- **CI**：第 20 组断言，用"从 workflow 抽取的命令原文"做了**双向预演** —— 修复后的 CSS `fail=0`、
+  修复前的 CSS `fail=1` 且两条 ❌ 都触发（**只在修复后成立才算真守卫**）；
+- **上线**：run 明细见 §1「上线记录 · 第十二批 / P 段」。
+
+#### ⑥ 顺带修掉的一个真 bug：`.env.local` 里的注释会打断 shell 版加载器
+
+跑 `poll-progress.sh` 时暴露：`.env.local` 开头是几行 `#` 注释，而两个 poll 脚本的加载器原本是朴素的
+`while IFS='=' read -r k v; do [ -n "$k" ] && export "$k=$v"; done` ——
+注释整行被当成**变量名**，`export` 报 `invalid variable name` 并**中断脚本** ⇒ 表现为"读不到 GH_PAT"。
+已改为跳过空行 / 注释 / 非法 key，并剥掉可能的 CRLF。
+
+> 为什么上一轮没发现：`b8-lib.mjs` 的加载器用正则 `^\s*([A-Z0-9_]+)\s*=` 筛 key，**天生不受影响** ——
+> 所以只测 Node 侧根本测不出这个 bug。**"带注释的 `.env.local` + shell 加载器"这个组合必须单独跑一次。**
 
 
 ## 4. 移动端专项（你特别强调的部分）
