@@ -74,16 +74,21 @@
 
 ---
 
-> ### ⚠️ 尚未处理的遗留（不阻塞 P7，但会误导后来人）
-> `.github/workflows/deploy-dev.yaml`（`name: Deploy Dev`，触发条件是 push `dev` 分支 / 手动 dispatch）
-> 自 P1/P2 起就**已经是陈旧件**，三个坑：
-> 1. 同样有 `tar -xzf ... -C public/` 而缺 `mkdir -p public`（与 `push-cloudflare` 同款崩溃）；
-> 2. 它下载的是**官方** `dani-garcia/bw_web_builds` 的 release，**不是我们 fork 的 artifact**
->    ⇒ 真跑起来会发布**未打任何定制**的前端；
-> 3. 第 92 行仍 `cp public/css/vaultwarden.css` —— 该文件 P2 已删除，必失败。
+> ### ✅ 遗留已清除：`deploy-dev.yaml` 已删除（2026-09-14）
+> `.github/workflows/deploy-dev.yaml`（`name: Deploy Dev`）与 `push-cloudflare.yaml` 共用同一段取产物逻辑，
+> 但停留在 P1 之前，有三个坑：① 同样 `tar -xzf ... -C public/` 而缺 `mkdir -p public`；
+> ② 它下载的是**官方** `dani-garcia/bw_web_builds` 的 release，**不是我们 fork 的 artifact**
+> ⇒ 真跑起来会发布**未打任何定制**的前端；③ 仍 `cp public/css/vaultwarden.css`（该文件 P2 已删，必失败）。
 >
-> 因为 `dev` 分支不存在，它一直没被触发，所以没暴露。**若将来要做"独立预览环境"，这里要重写**
-> （照 `push-cloudflare.yaml` 的"按 artifact 名反查 + 硬校验"模式改），不能直接开。
+> **处置：直接删除。** 依据 —— 没有任何东西依赖它（`dev` 分支不存在；Cloudflare 账号下
+> **不存在** `warden-worker-dev` 这个 Worker，只有 `warden-worker`；`[env.dev]` 无域名无路由）。
+> 留着它是负资产：跑通反而比不跑危险。将来若真要做独立预览环境，
+> 应照 `push-cloudflare.yaml` 的"按 artifact 名反查 + 硬校验"模式**新建一条**，
+> 而不是复活这个陈旧件（修它 ≈ 重写，还要长期同步两份近乎重复的反查逻辑）。
+>
+> 注：`wrangler.toml` 的 `[env.dev]` 段落**保留未动** —— 它是惰性配置（不会自己触发、不会发布错误产物），
+> 且是将来搭预览环境的现成脚手架；删它只减少认知噪音，不消除任何隐患，而 `wrangler.toml` 是生产配置，
+> 刚修好部署链路，不宜冒险改动。
 
 ---
 
