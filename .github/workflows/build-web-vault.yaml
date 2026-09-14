@@ -17,7 +17,7 @@ on:
       version:
         description: "产物标签 / artifact 名 (如 v2026.8.2)。会与源码里的版本核对, 不一致直接失败"
         required: true
-        default: "v2026.8.4"
+        default: "v2026.8.5"
 
 env:
   # 我们的前端源码 fork。定制已直接落在源码里(见 fork 的 shypwd 分支)。
@@ -661,8 +661,83 @@ jobs:
             fi
           done
 
+          # 23) 第十五批 / S 段: 移动端第三轮反馈(用户反馈 4 组, 全部落地)
+          #     ← libs/components/src/select/select.component.html|ts   (问题1: 窄屏下拉改"纯选择器")
+          #       + apps/web/src/app/vault/components/vault-items/totp-badge.component.html|ts
+          #         + libs/common/src/vault/services/totp.service.ts    (问题10b: 次码 + 升格动画)
+          #       + apps/web/src/app/tools/send/send.component.html
+          #         + apps/web/src/app/dirt/reports/pages/reports-home.component.html  (两处页头钩子)
+          #       + apps/web/src/css/vaultwarden.css (S0/S1-a/S1-b/S2 + 次码/升格那一组)
+          #     与前几批同理: **不是 L4 迁入的**, 是上线后按用户反馈新增的, 段标记「S 段」。
+          #
+          #     .main.js  '(max-width: 768px)'  —— 窄屏判定用的 MediaQuery 查询串。
+          #               ★ 本批**唯一只存在于 TS 里**的修复: 窄屏把 `searchable` 关掉, 于是
+          #                 ng-select 原生 handleMousedown() 走 toggle() —— 点**整块表单**既能
+          #                 展开也能收起, 且输入框 readOnly(全程不弹软键盘)。这正是用户
+          #                 "只点击箭头展开后无法再点击箭头关闭"那条的根治点。
+          #                 它同时是"问题1 是否真改过"的**唯一静态判据**: 改回 searchable 恒定
+          #                 这一串就没了。只取查询串、不含标识符(`narrow`/`narrowQuery` 会被
+          #                 terser 混淆), 所以 rebase 上游后仍稳。
+          #                 📌 有区分度(实测): v2026.8.4(上一版线上产物)里出现 **0** 次。
+          #               ⚠️ 别拿它去断"窄屏才生效" —— 它只是那句话的字符串, 跟 @media 无关。
+          #     .main.js  'warden-totp-next' / 'warden-totp-ghost' —— 盒内三行里常驻 DOM 的两行
+          #               (次码 / 旧主码), 模板上的静态 class; 'warden-totp-rolling' 是
+          #               `[class.x]` 绑定, Angular 编译后照样留下这个字面量。
+          #               ★ 三行**常驻**而不是 @if 开关: 新建元素在同一帧就被加样式, 浏览器
+          #                 不会为它跑 transition ⇒ 进场动画退化成"直接出现"。这一条只在
+          #                 真机上看得出来(grep 只能证明类名在产物里)。
+          #     .main.js  'warden-bare-header' —— 发送页/报告页模板上的**页级钩子**(静态 class)。
+          #               页头是共享组件(app-header → web-header → bit-header), 想只影响这两页
+          #               就必须有页级钩子, 否则选择器只能写全局。
+          #     🔴 所有字面量一律带 `--`: '(max-width: 768px)' 以 `(` 开头, 不带会被 grep
+          #        当成选项语法错(fail-fast 的教训, 第十四批已栽过一次)。
+          #
+          #     .vw.css   'S 段. 移动端适配(第十五批)' —— 段横幅(vaultwarden.css 原样发布, 注释不剥)。
+          #     .vw.css   S0/S1-a/S1-b/S2 的四条选择器 + 次码/升格那一组。
+          #     ⚠️ **不要**拿 '.warden-select-open'(R 段) / '.warden-auth-title'(更早) /
+          #        'warden-tabbar'(更早) 来代表本批 —— 它们在上一版产物里就已存在, 等于"没修也能过"。
+          for lit in '(max-width: 768px)' 'warden-totp-next' 'warden-totp-ghost' \
+                     'warden-totp-rolling' 'warden-bare-header'; do
+            grep -qF -- "${lit}" .main.js \
+              || { echo "❌ 产物 main.js 里找不到第十五批的标记 '${lit}'" >&2; fail=1; }
+          done
+          #    ★ 负向守卫(两种口径, 与第十四批同一套判据):
+          #      (a) S 段里**该只在窄屏生效**的 4 条 —— 顶格 = 桌面端跟着遭殃:
+          #          S1-a 藏掉桌面端**所有**页面的 h1 标题 /
+          #          S1-b 藏掉桌面端发送页与报告页的**整条页头** /
+          #          S2 把桌面端**所有**多行 textarea 压成 32px 单行(发送页的描述框首当其冲)。
+          #          判据沿用第十四批: `grep -nF` 命中行若在 `行号:` 之后**紧跟非空白字符**,
+          #          即该处顶格(全局); 所有命中都带缩进才算合规。不写正则、不数缩进格数。
+          #      (b) 次码/升格那一组(.warden-totp-next / -ghost / -rolling、两条 @keyframes)
+          #          **刻意全局**: 徽章是桌面端与窄屏**共用**的组件, 且全程不动盒体尺寸
+          #          (46px 高) ⇒ 桌面端一起升级是有意为之, 不参与守卫(`continue` 跳过)。
+          #          ⚠️ 这是"设计成全局", 不是漏了守卫 —— 别以为它是哑弹就把它删掉。
+          S_CSS_LITS=('S 段. 移动端适配(第十五批)' \
+                      'main#main-content h1.warden-auth-title' \
+                      'main#main-content app-header.warden-bare-header bit-header' \
+                      'main#main-content bit-form-field textarea[bitInput]' \
+                      '.warden-totp-next' '.warden-totp-ghost' \
+                      '.warden-totp-rolling .warden-totp-digits' \
+                      '@keyframes warden-totp-promote' \
+                      '@keyframes warden-totp-retire')
+          for lit in "${S_CSS_LITS[@]}"; do
+            grep -qF -- "${lit}" .vw.css \
+              || { echo "❌ css/vaultwarden.css 里找不到第十五批的标记 '${lit}'" >&2; fail=1; }
+          done
+          for lit in "${S_CSS_LITS[@]}"; do
+            case "${lit}" in
+              'S 段. 移动端适配(第十五批)' | '.warden-totp-next' | '.warden-totp-ghost' \
+              | '.warden-totp-rolling .warden-totp-digits' \
+              | '@keyframes warden-totp-promote' | '@keyframes warden-totp-retire') continue ;;
+            esac
+            if grep -nF -- "${lit}" .vw.css | grep -qE '^[0-9]+:[^[:space:]]'; then
+              echo "❌ 第十五批的规则 '${lit}' 存在顶格(全局)写法: 桌面端也会被藏掉/被压掉" >&2
+              fail=1
+            fi
+          done
+
           [ "${fail}" -eq 0 ] || exit 1
-          echo "✅ 二十二项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11 + 第七批 J6/B段 + 第八批 J16/E段 + 第九批 J15 + 第十批/N段 + 第十一批/O段 + 第十二批/P段 + 第十三批/Q段 + 第十四批/R段)均已在实际产物中得到验证"
+          echo "✅ 二十三项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11 + 第七批 J6/B段 + 第八批 J16/E段 + 第九批 J15 + 第十批/N段 + 第十一批/O段 + 第十二批/P段 + 第十三批/Q段 + 第十四批/R段 + 第十五批/S段)均已在实际产物中得到验证"
 
       - name: Disk space after
         if: always()
