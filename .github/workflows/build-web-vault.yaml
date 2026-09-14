@@ -15,9 +15,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "产物标签 / artifact 名 (如 v2026.8.2)。会与源码里的版本核对, 不一致直接失败"
+        description: "产物标签 / artifact 名 (如 v2026.8.6)。会与源码里的版本核对, 不一致直接失败"
         required: true
-        default: "v2026.8.5"
+        default: "v2026.8.6"
 
 env:
   # 我们的前端源码 fork。定制已直接落在源码里(见 fork 的 shypwd 分支)。
@@ -608,23 +608,29 @@ jobs:
           #       + css/vaultwarden.css  (R 段: R0 触摸热点 + R1..R6 窄屏留白/隐藏)
           #     与第十一批/第十三批同理: **不是 L4 迁入的**, 是上线后按用户反馈新增的, 段标记「R 段」。
           #
-          #     .main.js  'warden-select-open' —— 覆盖在原生箭头上的透明触摸热点按钮(模板静态 class)。
-          #               ★ 之所以自己加按钮: ng-select 原生箭头是 25×20px 的 <span>, 依赖真机把
+          #     .main.js  'warden-select-open' —— 🔴 **第十六批/T 段已退役, 这里改成负向断言**。
+          #               (历史) 覆盖在原生箭头上的透明触摸热点按钮(模板静态 class)。
+          #               ★ 之所以当年自己加按钮: ng-select 原生箭头是 25×20px 的 <span>, 依赖真机把
           #                 touchstart/touchend **合成** click, 那一串被吞就表现为"点箭头没反应"。
           #               ⚠️ 静态 grep 只能证明"热点还在", **证明不了行为**: 本批曾把
           #                 `if (ngSelect.isOpen)` 当布尔用 —— 而那在 v21 是 ModelSignal(函数),
           #                 恒为真 ⇒ 永远只 close()、面板永远打不开, 但模板里的 class 照样在产物里。
-          #                 行为由 .deploycheck/verify-batch14.mjs 在浏览器里断言(点开+再点收起),
-          #                 CI 这层不重做。
+          #               🔴 T 段撤掉它的理由(用户第十六批反馈"点了只在方框下面闪一下浅灰色一层就没了"):
+          #                 它是 `<ng-select>` 的**兄弟节点**, 而 ng-select 判"外部点击"只比
+          #                 `this._select.contains($event.target)` 且自己模板里绑着
+          #                 `(outsideClick)="close()"` ⇒ 按它必然被判成"点了外面":
+          #                 "pointerdown 里 toggle 开一次 + outsideClick 关一次" = 面板闪一下就没。
+          #                 替代方案是把 handler 挂到包装 div 上(T 段, 见下面第 24 项)。
+          if grep -qF -- 'warden-select-open' .main.js; then
+            echo "❌ 产物 main.js 里又出现了已退役的 'warden-select-open': 那个兄弟节点按钮会让面板开一次立刻被 outsideClick 关掉" >&2
+            fail=1
+          fi
           #     .vw.css   'R. 第十四批'  —— 段横幅
-          #     .vw.css   '.warden-select-open' —— R0(全局, 两条窄屏守卫都不覆盖它)
           #     .vw.css   R1/R2/R4/R3/R5/R6 的六条选择器
+          #     ⚠️ '.warden-select-open' **已从本数组移除**(T 段退役): 它的规则块被删掉了,
+          #        文件里只剩注释提到这个名字 ⇒ 留在这里会得到一个"注释也命中"的假通过。
           #     🔴 所有字面量都带 `--`: 选择器里有 `-`/`.` 开头的, 不带会被 grep 当选项(fail-fast 的教训)。
-          for lit in 'warden-select-open'; do
-            grep -qF -- "${lit}" .main.js \
-              || { echo "❌ 产物 main.js 里找不到第十四批的标记 '${lit}'" >&2; fail=1; }
-          done
-          R_CSS_LITS=('R. 第十四批' '.warden-select-open' \
+          R_CSS_LITS=('R. 第十四批' \
                       'main#main-content .tw-mb-2.tw-pb-2\.5' \
                       'main#main-content .tw-grid.tw-gap-16' \
                       'main#main-content bit-search form:focus-within' \
@@ -640,8 +646,9 @@ jobs:
           #        R1 打乱桌面端所有设置页的标题节奏 / R2 压掉桌面端密钥页的段间距 /
           #        R3 **去掉桌面端的 focus 环**(可访问性回退) / R4 压扁桌面端所有多行 textarea /
           #        R5+R6 藏掉桌面端唯一的产品切换入口与页头「新增」。
-          #      只有 R0(`.warden-select-open`) 刻意**不**参与守卫: 它就是要全局生效,
-          #      否则那个 <button> 在桌面端会退化成无定位的空按钮。
+          #      只有 'R. 第十四批'(段横幅, 本来就顶格) 不参与守卫。
+          #      📌 原来这里还 skip 掉 '.warden-select-open'(当年它是"设计成全局"的 R0) ——
+          #         T 段把它整条删掉之后, 那一项已从数组里移除, skip 也一并删掉。
           #
           #    🔴 判据写法踩过的坑(务必照抄现写法, 不要改回手写正则):
           #      第一版把守卫写成 `grep -qE '^main#main-content app-header product-switcher'` ——
@@ -653,7 +660,7 @@ jobs:
           #      ⚠️ 每批加守卫时都要**离线证伪一次**(故意改成顶格, 确认它真的报错)再提交。
           for lit in "${R_CSS_LITS[@]}"; do
             case "${lit}" in
-              'R. 第十四批' | '.warden-select-open') continue ;;
+              'R. 第十四批') continue ;;
             esac
             if grep -nF -- "${lit}" .vw.css | grep -qE '^[0-9]+:[^[:space:]]'; then
               echo "❌ 第十四批的规则 '${lit}' 存在顶格(全局)写法: 桌面端也会被藏掉/被压掉" >&2
@@ -705,17 +712,23 @@ jobs:
           #      (a) S 段里**该只在窄屏生效**的 4 条 —— 顶格 = 桌面端跟着遭殃:
           #          S1-a 藏掉桌面端**所有**页面的 h1 标题 /
           #          S1-b 藏掉桌面端发送页与报告页的**整条页头** /
-          #          S2 把桌面端**所有**多行 textarea 压成 32px 单行(发送页的描述框首当其冲)。
+          #          S2   把**自定义域名**输入框压成 32px 单行(见下方 T 段的收窄说明)。
           #          判据沿用第十四批: `grep -nF` 命中行若在 `行号:` 之后**紧跟非空白字符**,
           #          即该处顶格(全局); 所有命中都带缩进才算合规。不写正则、不数缩进格数。
           #      (b) 次码/升格那一组(.warden-totp-next / -ghost / -rolling、两条 @keyframes)
           #          **刻意全局**: 徽章是桌面端与窄屏**共用**的组件, 且全程不动盒体尺寸
           #          (46px 高) ⇒ 桌面端一起升级是有意为之, 不参与守卫(`continue` 跳过)。
           #          ⚠️ 这是"设计成全局", 不是漏了守卫 —— 别以为它是哑弹就把它删掉。
+          #
+          #      🔴 S2 的选择器在第十六批/T 段被**收窄**过, 这里的字面量必须跟着改 ——
+          #         原来写的是 `main#main-content bit-form-field textarea[bitInput]`, 而那个组合
+          #         全仓库 20+ 处(备注 rows=5 / Send / 导入 / SM 申请) ⇒ 窄屏会把这些多行框
+          #         一起压成 32px 单行。T 段插入 `.warden-domain-row` 页级钩子把它收窄。
+          #         字面量不同步的后果: 这一条 grep 直接不命中 ⇒ CI 报"第十五批的标记丢了"。
           S_CSS_LITS=('S 段. 移动端适配(第十五批)' \
                       'main#main-content h1.warden-auth-title' \
                       'main#main-content app-header.warden-bare-header bit-header' \
-                      'main#main-content bit-form-field textarea[bitInput]' \
+                      'main#main-content .warden-domain-row bit-form-field textarea[bitInput]' \
                       '.warden-totp-next' '.warden-totp-ghost' \
                       '.warden-totp-rolling .warden-totp-digits' \
                       '@keyframes warden-totp-promote' \
@@ -736,8 +749,75 @@ jobs:
             fi
           done
 
+          # 24) 第十六批 / T 段: 移动端第四轮反馈(用户反馈 3 条, 全部落地)
+          #     ← libs/components/src/select/select.component.{html,ts}   (问题2: 下拉点不开)
+          #       + apps/web/src/app/settings/domain-rules.component.html  (问题3: 行加页级钩子)
+          #         + apps/web/src/css/vaultwarden.css                     (T2 + S2 收窄)
+          #       + apps/web/src/app/vault/components/vault-items/totp-badge.component.ts
+          #         + libs/common/src/vault/services/totp.service.ts      (问题1: 升格闪一下)
+          #     与第十/十一/十三/十四/十五批同理: **不是 L4 迁入的**, 是上线后按用户反馈新增的,
+          #     段标记「T 段」。
+          #
+          #     .main.js  'warden-domain-row' —— T2 的**页级钩子类**(domain-rules.component.html
+          #               行 div 上的静态 class)。
+          #               ★ 必须与 .vw.css 里的同名选择器**成对**断言: 只断 CSS 的话, 有人把
+          #                 模板上的钩子删了, 样式就变成"谁都不命中", 功能静默失效而 CI 全绿。
+          #     .main.js  'Math.floor(Date.now()/1e3)' —— T3 的**唯一静态判据**。
+          #               原实现是 `Math.round(Date.now()/1000)`, 它会在 TOTP 窗口边界**前最多
+          #               0.5s** 就越过边界 ⇒ 升格动画拿着**旧码**先跑, 等新码送到才闪一下换掉
+          #               (用户报"上移过程中会先变成原主码, 然后闪一下才变成新码")。
+          #               改成与 TOTP 窗口定义 `floor(now/period)` 一致的 floor。
+          #               `Math.floor` / `Date.now` 都是内建名, 不参与 terser 的标识符混淆;
+          #               数字常量被压成 `1e3`。
+          #               📌 区分度(实测, 两版线上产物逐字对过):
+          #                  v2026.8.5(S 段): Math.round(...)=**2** / Math.floor(...)=**0**
+          #                  v2026.8.6(T 段): Math.round(...)=**0** / Math.floor(...)=**1**
+          #                  多出来的那次 round 是 S 段自己在 totp-badge 里算的 `step`(T 段随
+          #                  判据一起删了, 见上面第 22 项)。所以正负两条必须同时断: 只断 floor
+          #                  的话, 有人把 `step` 的 round 写法加回来也查不出来。
+          #
+          #     .vw.css   'T 段. 移动端第四轮反馈(第十六批)' —— 段横幅(vaultwarden.css 原样发布, 注释不剥)。
+          #     .vw.css   '.warden-domain-row'              —— T2 两条规则的选择器。
+          #     .vw.css   'align-items: flex-end !important' —— T2 的**具体修法**。
+          #               ★ 不断言那个行 div 的类名: 要修的是"对齐基准", 只断类名的话有人把它
+          #                 写回 `center` 也算通过。这个字面量在本文件里唯一(实测 1 次)。
+          #     ⚠️ **不要**拿 '.warden-select-open'(R 段, T 段已退役) / 'warden-totp-next'
+          #        (S 段) / '.warden-head-newbar'(O 段) 来代表本批 —— 它们在上一版产物里就已存在。
+          #     🔴 所有字面量一律带 `--`(本批含 '(' / '.' / 'Math.floor(...)' 里的括号, 不带会被
+          #        grep 当选项或语法错 —— fail-fast 的教训)。
+          for lit in 'warden-domain-row' 'Math.floor(Date.now()/1e3)'; do
+            grep -qF -- "${lit}" .main.js \
+              || { echo "❌ 产物 main.js 里找不到第十六批的标记 '${lit}'" >&2; fail=1; }
+          done
+          #    ★ 负向守卫 1: T3 的旧判据不得复活 —— `Math.round(Date.now()/1e3)` 必须归零
+          #      (它既是 totp.service 的老写法, 也是 totp-badge 里那个 `step` 的写法)。
+          #      留着它 = 升格动画会在真正换码前 0.5s 开跑, 又回到"旧码先上移、再闪一下"。
+          if grep -qF -- 'Math.round(Date.now()/1e3)' .main.js; then
+            echo "❌ 产物里又出现了 'Math.round(Date.now()/1e3)': TOTP 升格动画会在换码前 0.5s 开跑(旧码先上移再闪一下)" >&2
+            fail=1
+          fi
+          T_CSS_LITS=('T 段. 移动端第四轮反馈(第十六批)' '.warden-domain-row' \
+                      'align-items: flex-end !important')
+          for lit in "${T_CSS_LITS[@]}"; do
+            grep -qF -- "${lit}" .vw.css \
+              || { echo "❌ css/vaultwarden.css 里找不到第十六批的标记 '${lit}'" >&2; fail=1; }
+          done
+          #    ★ 负向守卫 2: T2 的两条规则**必须**写在 @media (max-width:768px) 里(命中行有缩进);
+          #      顶格 = 桌面端那一行也被改成 flex-end(桌面端按钮与输入框本来就已对齐, 改了反而错位)。
+          #      判据沿用第十四/十五批: `grep -nF` 命中行若在 `行号:` 之后**紧跟非空白字符**即顶格。
+          #      只有段横幅不参与(它本来就顶格)。
+          for lit in "${T_CSS_LITS[@]}"; do
+            case "${lit}" in
+              'T 段. 移动端第四轮反馈(第十六批)') continue ;;
+            esac
+            if grep -nF -- "${lit}" .vw.css | grep -qE '^[0-9]+:[^[:space:]]'; then
+              echo "❌ 第十六批的规则 '${lit}' 存在顶格(全局)写法: 桌面端也会被改掉" >&2
+              fail=1
+            fi
+          done
+
           [ "${fail}" -eq 0 ] || exit 1
-          echo "✅ 二十三项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11 + 第七批 J6/B段 + 第八批 J16/E段 + 第九批 J15 + 第十批/N段 + 第十一批/O段 + 第十二批/P段 + 第十三批/Q段 + 第十四批/R段 + 第十五批/S段)均已在实际产物中得到验证"
+          echo "✅ 二十四项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11 + 第七批 J6/B段 + 第八批 J16/E段 + 第九批 J15 + 第十批/N段 + 第十一批/O段 + 第十二批/P段 + 第十三批/Q段 + 第十四批/R段 + 第十五批/S段 + 第十六批/T段)均已在实际产物中得到验证"
 
       - name: Disk space after
         if: always()

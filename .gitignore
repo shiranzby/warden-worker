@@ -52,6 +52,23 @@ sql/global_domains_seed.sql
 # 第十四批实测踩到过 —— 守卫模式漏抄一个词, 把规则写成全局它也不报警。
 !.deploycheck/probe-audit-guards.py
 !.deploycheck/probe-s15-guard.py
+# 第十六批/T 段的验收闸门(6 个)。入库前已按上面的 PAT 扫过, 全部只从 .env.local 读凭据。
+# 每个脚本头部都写了"为什么这么断 / 实测数据", 别只留结论。
+# ⚠️ 下面每一条**必须独占一行**: .gitignore **不支持行尾注释** —— 写成
+#    `!.deploycheck/x.mjs   # 说明` 会把 `# 说明` 一起当成模式, 于是这条白名单静默失效
+#    (文件仍被忽略, 而 `git status` 里看不出来)。注释只能单独占一行。
+!.deploycheck/probe-b16-totp-frames.mjs
+# ↑ 放慢 10 倍逐帧截图, 拍到"升格前 4 帧还是旧码"的那个
+!.deploycheck/probe-b16-totp-roll.mjs
+# ↑ T3 验收: f0 主码须已是新码, 且全程 ghost !== digits
+!.deploycheck/probe-b16-select-postfix.mjs
+# ↑ T1 验收: 窄屏 开/再点收起/600ms 无关闭帧; 宽屏 4 项桌面行为不变
+!.deploycheck/probe-b16-domain.mjs
+# ↑ T2 验收: 按钮中心 vs 输入框中心的几何差(9 元组全量打印)
+!.deploycheck/probe-b16-notes.mjs
+# ↑ S2 收窄的回归守卫: 备注框不许被压成 32px
+!.deploycheck/falsify-b16.py
+# ↑ 守卫**离线证伪**(把改动改回去必须报错), 防哑弹
 
 # Coding assistant
 .ace-tool/

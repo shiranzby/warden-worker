@@ -79,7 +79,13 @@ manifest = subprocess.run(
 print(f"OK  清单 {len(manifest.splitlines())} 行")
 
 # ---- 3) 实跑(工作目录里只放 tar + 清单, 脚本自己解出来) ----
-r = subprocess.run(["bash", "-c", script], cwd=WORK, capture_output=True, text=True)
+# ⚠️ 必须**落盘再跑**, 不能写 `subprocess.run(["bash","-c",script])`:
+#    断言脚本现在有 33KB, Windows 上传命令行会直接抛
+#    `OSError: [WinError 206] 文件名或扩展名太长` ⇒ 看着像"断言没过", 其实是根本没跑起来。
+#    CI 那边 `run: |` 也是写成临时文件再 `bash -e <file>`, 所以落盘跑**与 CI 等价**。
+SCRIPT_FILE = WORK / ".assert.sh"
+SCRIPT_FILE.write_text(script, encoding="utf-8")
+r = subprocess.run(["bash", SCRIPT_FILE.name], cwd=WORK, capture_output=True, text=True)
 print("\n=== stdout ===")
 print(r.stdout)
 if r.stderr.strip():
