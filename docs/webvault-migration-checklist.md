@@ -1,8 +1,9 @@
 # L4 → 源码 迁移对照清单
 
 > 生成 2026-09-13 ｜ 对照对象：`custom/custom.js`（**1983 行**）+ `custom/custom.css`（**1279 行**）—— 两者已随 P7 退役
-> **当前进度（2026-09-14）**：**P0–P7 全部完成**。源码侧共 9 批提交（每批都带运行期验证 + 产物级 CI 断言，现 **17 组**），
-> P7 已删 `custom/`（3262 行）与 CI 注入步骤，前端切到 **v2026.8.0**（fork `shiranzby/vw_web_builds@shypwd`）。
+> **当前进度（2026-09-14）**：**P0–P7 全部完成**。源码侧共 **11 批**提交（每批都带运行期验证 + 产物级 CI 断言，现 **19 组**），
+> P7 已删 `custom/`（3262 行）与 CI 注入步骤，前端切到 **`v2026.8.1`**（fork `shiranzby/vw_web_builds@shypwd`；
+> `v2026.8.0` 是迁移基线，`v2026.8.1` 是第十一批起为"上线可辨识"而升的 patch 位 —— 见 §3 第十一批 ⑦）。
 > 状态：⬜ 未开始 ｜ 🟡 进行中 ｜ ✅ 已完成 ｜ ~~删除线~~ = 已退役
 
 ---
@@ -105,15 +106,44 @@
 >
 > **回滚**：`git revert` fork 的 `bed28439be` + 重跑 `Build`（版本号不用动）。
 
-> ### 🟡 已落地、**待部署** · 第十一批 / O 段（2026-09-14）
-> 源码已入 fork `shypwd`（`633854e640`），CI 断言已升到 **19 组**（第 19 组覆盖本批，见 §3 第十一批 ⑥），
-> 本地运行期验证 **56/56 PASS**。**尚未部署**（等用户确认）。
+> ### ✅ 上线记录 · 第十一批 / O 段（窄屏体验修复，2026-09-14）
+> **本批首次引入「版本号升 patch 位」**：前端 `2026.8.0 → 2026.8.1`（三处联动，见 §3 第十一批 ⑦）。
+> 用户确认部署后按「先 build 后 deploy」执行，**两条 workflow 最终均 success**：
 >
-> ⚠️ 部署前要先决定**版本号**：本批与前一批同版本（`v2026.8.0`）时，`build-web-vault` 会产出**同名 artifact**、
-> 且线上 `vw-version.json` 纹丝不动 ⇒ 上线与否只能靠 asset 哈希判断（见下面第十批的提醒）。
-> 建议本批升到 `v2026.8.1`（三处联动：fork `apps/web/package.json` ← `build-web-vault.yaml` 的 `inputs.version`
-> 闸门 ← `push-cloudflare.yaml` 的 `BW_WEB_VERSION` 默认值），这样 `vw-version.json` 本身就是上线判据。
-> 详见 §3 第十一批 ⑦。
+> | 步骤 | run | 结果 | 耗时 | 备注 |
+> |---|---|---|---|---|
+> | `Build Web Vault (patched)`（`version=v2026.8.1`） | `34797228137` | ❌ **failure** | 5m38s | 第 11 步断言挂了 —— **是 CI 自己的 bug，不是产物**（见下） |
+> | ↳ 同一批重复触发的两个 run | `34797231349` / `34797236745` | ⏹ cancelled | — | curl 重试导致重复 dispatch，已取消（见下） |
+> | `Build Web Vault (patched)`（重跑） | **`34797593160`** | ✅ success | **4m04s** | 第 11 步 **19 组断言全绿** → artifact `bw_web_vault-v2026.8.1`（`10329784092`，35.7MB） |
+> | `push-cloudflare` dispatch（workflow 名 `Build`） | **`34797836955`** | ✅ success | **4m43s** | |
+>
+> - 前端源码：fork `shypwd` = **`0409832f46`**（`633854e640` 是功能提交，本提交只升版本号）；
+>   warden-worker `main` = **`3525d20`**（含 CI 修复）。
+> - **线上验证**：`vw-version.json` **`2026.8.0` → `2026.8.1`**（版本号本身就是上线判据，本批起不再需要靠哈希推断）；
+>   主包 **`app/main.bcbe594e8d36993f0697.js` → `app/main.139cd3d409a45b32bba3.js`**（5.48MB）；
+>   `/css/vaultwarden.css` 72KB，7 个 O 段标记的**出现次数与本地源码逐项相同**（9/3/2/6/5）；
+>   `/custom.js`、`/custom.css` 仍 **404**（注入层退役状态保持）；L4 残留标记 `warden-sel-mode` = 0。
+> - **线上运行时 56/56 PASS**（同一个脚本，只换目标：
+>   `WARDEN_TEST_BASE=https://shypwd.cc.cd WARDEN_TEST_PROXY=http://127.0.0.1:7890 node .deploycheck/verify-batch11.mjs`），
+>   读数与本地完全一致；**线上 CSP 噪声 0 条**（本地是 4 条，见第十批 ⑥ 的同一解释）。
+>
+> #### 🔴 本批部署时踩的两个"操作类"坑（都不是产品问题，但各烧掉一轮/制造了脏数据）
+> 1. **`--retry-all-errors` 让 dispatch 重复触发** —— 一次调用触发出了 **3 个并发 build run**。
+>    根因：本机 Git Bash 下 `curl -o /dev/null` 返回 **exit 23（写数据失败）**，而 `--retry-all-errors`
+>    把"任何错误"都当可重试 ⇒ **非幂等的 POST 被重试**。curl 还报 `HTTP 204`（第一次确实成功了），
+>    **表面完全看不出来**，只有查 run 列表才发现跑了三份。处置：`cancel` 掉多余的两个（返回 202）。
+>    **正确写法**：去掉 `--retry-all-errors`（只留 `--retry 3`，它只重试 5xx/429/超时），且别用 `-o /dev/null`。
+> 2. **`grep -qF "$pat"` 当 `$pat` 以 `-` 开头时会被当成选项** —— 第一次 build 就挂在这一个字符上：
+>    `grep -qF "--warden-safe-bottom" .vw.css` → `grep: unknown option -- warden-safe-bottom`（exit 2）
+>    ⇒ `||` 分支触发，打印"❌ 产物里找不到该标记"，**现象与"标记真的没进产物"一模一样**。
+>    而同批其余 6 个标记都以 `.` 开头、全部通过，只有这一条挂。**规矩：一律写 `grep -qF -- "${lit}"`**。
+>    > ★ 更值得记的是**为什么本地预演没抓到**：我手写的预演命令用了 `grep -cF -- "$lit"`（**带了 `--`**），
+>    > 而 workflow 里漏了 ⇒ **预演的必须是"从 workflow 抽取的命令原文"，不能自己手打一份等价的** ——
+>    > 手打时人会下意识补全正确写法，正好把要验的缺陷抹掉。
+>    > 另：**CI 失败要拉 job 日志看"真正的输出行"** —— 日志前半是脚本源码回显，需 `grep -v 'echo '`
+>    > 才能筛出真正的 `❌`（`##[error]Process completed with exit code 1` 只告诉你"失败了"）。
+>
+> **回滚**：`git revert` fork 的 `633854e640` 与 `0409832f46` + `BW_WEB_VERSION` 改回 `v2026.8.0` + 重跑 `Build`。
 
 ---
 
@@ -1219,21 +1249,38 @@ H1 原本固定留 `74px`：**不带安全区的机型刚够**（74 > 63），**
   会拦住 `@Output() x = new EventEmitter()`，**必须写 `readonly x = output<T>()`**
   （本批第一次提交被 pre-commit 挡下，改完才过）。另外 `output<void>()` 的 `.emit()` 可以直接不传参。
 
-#### ⑦ 上线（🟡 待用户确认）
+#### ⑦ 上线（2026-09-14 已部署，版本号升到 `v2026.8.1`）
 
-按「先 build 后 deploy」执行两条 workflow：`Build Web Vault (patched)`（`inputs.version`）→
-`push-cloudflare` dispatch（workflow 名 `Build`）。**必须先 build 再 deploy** ——
-部署侧按 artifact 名 `bw_web_vault-<version>` 反查、取 `created_at` 最新且未过期的那个，
-顺序反了就会部署到**旧产物**。
+按「先 build 后 deploy」执行。**必须先 build 再 deploy** —— 部署侧按 artifact 名
+`bw_web_vault-<version>` 反查、取 `created_at` 最新且未过期的那个，顺序反了就会部署到**旧产物**。
+run 明细与踩的两个坑见 §1 的「上线记录 · 第十一批 / O 段」。
 
-**版本号需要先定**（这是本批唯一需要用户拍板的技术点）：
+**为什么本批要升版本号**：前一批与本批此前共用 `2026.8.0` ⇒ 产出的 artifact **同名**
+（本次查证：仓库里 17 个 artifact，绝大多数都叫 `bw_web_vault-v2026.8.0`），
+且 `vw-version.json` 在"同版本号重新构建"时**不会变** ⇒ 上线与否只能靠 asset 哈希推断。
+升 patch 位后 artifact 名唯一、`vw-version.json` 本身就是上线判据。
 
-| 选项 | 三处联动改动 | 上线判据 |
-|---|---|---|
-| 升 `v2026.8.1`（建议） | fork `apps/web/package.json` 的 `version` + `build-web-vault.yaml` 的 `inputs.version` + `push-cloudflare.yaml` 的 `BW_WEB_VERSION` 默认值 | `vw-version.json` 变成 `2026.8.1` **+** asset 哈希变了 |
-| 复用 `v2026.8.0` | 不动 | **只有 asset 哈希**（`vw-version.json` 不会变，见 §1 第十批的提醒）；且 artifact 同名 |
+> 🔴 **对既有认知的修正：不是"三处联动"，是「两处 + 两处」共四处。**
+> 之前记的是"版本三处联动"（fork `package.json` = `inputs.version` 闸门 = `BW_WEB_VERSION` 默认值）——
+> 那只覆盖了"改 CI 默认值"。**真要动 fork 的版本号，还得同步 lock 文件**：
+>
+> | # | 文件 | 改什么 | 不改的后果 |
+> |---|---|---|---|
+> | 1 | fork `apps/web/package.json` | `"version": "2026.8.1"` | 版本闸门 fail（`Verify version matches the source`） |
+> | 2 | fork `package-lock.json` | `packages["apps/web"].version` | 构建走 **`npm ci`**，lock 与 package.json 必须一致 |
+> | 3 | `build-web-vault.yaml` | `inputs.version` 的默认值 | 不传 `inputs` 时会用旧默认值 ⇒ 闸门 fail |
+> | 4 | `push-cloudflare.yaml` | `BW_WEB_VERSION` 默认值 | **部署侧反查不到 artifact** |
+>
+> 注：只改 `apps/web`，其余 workspace（`apps/browser`/`cli`/`desktop`）的版本**不动** ——
+> 它们不参与 web-vault 产物；`package-lock.json` 里 `node_modules/@bitwarden/web-vault` 是纯 link 条目、无版本。
+> 另外 `apps/web/build/version.json` 是构建产物（gitignored），会自动重生成，别手改。
+> 改前已用 API 确认**仓库里没有 `BW_WEB_VERSION` 变量**覆盖默认值（`variables total = 0`）。
+>
+> 🔴 改 workflow 的那次 push **必须带 `[skip ci]`**：推 `main` 会自动触发部署，
+> 而此刻新名字的 artifact 还不存在 ⇒ 自动部署必然失败。正确顺序永远是「先 dispatch build → 再 dispatch deploy」。
 
-**回滚**：`git revert` fork 的 `633854e640` + 重跑 `Build`（若升了版本，`BW_WEB_VERSION` 一并改回 `v2026.8.0`）。
+**回滚**：`git revert` fork 的 `633854e640`（功能）与 `0409832f46`（版本号），
+`BW_WEB_VERSION` 改回 `v2026.8.0`（+ 同步 lock 与 `inputs.version` 默认值），再重跑 `Build`。
 
 
 ## 4. 移动端专项（你特别强调的部分）
