@@ -19,7 +19,27 @@ sql/global_domains_seed.sql
 
 # 部署后验证的临时目录(轮询 CI / 抓取线上产物), 由 skill 的 verify-deploy.sh 使用
 .ci/
-.deploycheck/
+#
+# .deploycheck/ —— 本地验证目录。里面既有**要入库的脚本**(回归闸门), 也有 GB 级的
+# 产物快照/离线包。所以按"**显式白名单**"处理:
+#   · 先忽略目录下所有内容(`.deploycheck/*`, 注意不能写成 `.deploycheck/` ——
+#     整个目录被忽略时 git 不会进入它, 后面的 `!` 白名单会被一并忽略掉);
+#   · 再逐条放行脚本。
+# 🔴 **绝不能用"按扩展名放行"**(如 `!.deploycheck/*.mjs`) —— 该目录里还有 20 多个
+#    早期诊断脚本是**硬编码了测试账号主密码**的, 按扩展名放行会把它们提交到
+#    public 仓库。新增要入库的脚本时, 必须**逐个加白名单**, 加之前先扫凭据:
+#      grep -l -- 'ghp_\|github_pat_\|VerifyTest\|WARDEN_TEST_PASS=' .deploycheck/*
+#    凭据统一放 `.deploycheck/.env.local`(下面已忽略), 脚本从环境变量读。
+.deploycheck/*
+!.deploycheck/README.md
+!.deploycheck/b8-lib.mjs
+!.deploycheck/verify-batch10.mjs
+!.deploycheck/verify-batch11.mjs
+!.deploycheck/verify-j15.mjs
+!.deploycheck/verify-p7-browser.mjs
+!.deploycheck/devserver-b8.config.js
+!.deploycheck/poll-progress.sh
+!.deploycheck/run-artifact-asserts.py
 
 # Coding assistant
 .ace-tool/
