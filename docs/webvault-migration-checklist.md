@@ -41,7 +41,7 @@
 | **P3** 本地热重载 | `https://localhost:8080`，改源码即时生效（已实测逐字节验证） | ✅ |
 | **P4** 版本兼容评估 | 结论：**零后端改动**，新功能默认全关，UI 行为 ≈ 6.4 | ✅ |
 | **P5** 迁样式类改动 | A/B/C/E/F/G/H/I/J/J2/J3/K/L/M 共 14 段 / 1248 行 | 🟡 **H+K+M 已落地**（210 行）、**F 主部 + F5 已落地**、**G 段随 J17 落地**（81 行）、**C 段筛选抽屉半边随 J9 落地**（39 行）、**A 段 + C 段「名称」表头工具行随 J7 落地**（150 行，见 §3 第五批）、**I/J/J2/J3 随第六批落地**（见 §3 第六批）、**B 段随第七批落地**（见 §3 第七批）、**E 段随第八批落地**（见 §3 第八批）、**L 整体淘汰**（J12 改走官方对话框） |
-| **P6** 迁结构类改动 | TOTP 徽章 / 表头工具行 / 头像卡片 / 验证码页 / 底部标签栏 等 | ✅ **全部落地**：J12 + J8 + J17 + J9 + J14 + J7（「选择」半边）+ J10 账户卡片 + J11 二级导航 + J13 头像上传 + 4b/I 段 + J6 行内 TOTP 徽章/B 段 + J16 验证码页/E 段 + J15 ng-select 躲软键盘 + **第十批/N 段（窄屏省高度，非 L4 迁入，见 §3 第十批）** + **第十一批/O 段（窄屏体验修复 7 条，非 L4 迁入，见 §3 第十一批）** + **第十二批/P 段** + **第十三批/Q 段** + **第十四批/R 段** + **第十五批/S 段**（这四批同为上线后按用户反馈做的窄屏修复，非 L4 迁入，逐批记录见 §3 里各自的「上线记录」） |
+| **P6** 迁结构类改动 | TOTP 徽章 / 表头工具行 / 头像卡片 / 验证码页 / 底部标签栏 等 | ✅ **全部落地**：J12 + J8 + J17 + J9 + J14 + J7（「选择」半边）+ J10 账户卡片 + J11 二级导航 + J13 头像上传 + 4b/I 段 + J6 行内 TOTP 徽章/B 段 + J16 验证码页/E 段 + J15 ng-select 躲软键盘 + **第十批/N 段（窄屏省高度，非 L4 迁入，见 §3 第十批）** + **第十一批/O 段（窄屏体验修复 7 条，非 L4 迁入，见 §3 第十一批）** + **第十二批/P 段** + **第十三批/Q 段** + **第十四批/R 段** + **第十五批/S 段** + **第十六批/T 段**（这五批同为上线后按用户反馈做的窄屏修复，非 L4 迁入，逐批记录见 §1 里各自的「上线记录」） |
 | **P7** 拆 L4 + 切线上 | 删 `custom/`、删 CI 注入步骤、切到 fork 的 `v2026.8.0` 产物 | ✅ **源码侧已完成**（`custom/` 3262 行已删、注入步骤已删并加负向守卫、`BW_WEB_VERSION` 默认改 `v2026.8.0`）；线上切换见下方说明 |
 
 > ### ⚠️→✅ P7 前置阻塞已修（2026-09-14 定位并修复：`b981110`）
@@ -330,6 +330,11 @@
 >    最终 3 条 S 段 + 6 条 R 段守卫**逐条证伪 9/9 有效**（`probe-s15-guard.py`，已入库）。
 >    ⚠️ 途中还发现"证伪的正则"会漏掉**多行选择器列表**（`...focus-within,` 换行后才跟 `{`）——
 >    那是探针的局限，不是 CI 缺口（CI 用 `grep -nF` 判 `行号:` 后是否紧跟非空白，与 `{` 在哪一行无关）。
+>    📌 第十六批补记**同一个坑的另一个面孔**：断言脚本涨到 33KB 后，Python 侧
+>    `subprocess.run(["bash", "-c", script])` 在 Windows 上直接抛
+>    `OSError: [WinError 206] 文件名或扩展名太长` —— 这次连跑都没跑起来（不是截断）。
+>    `run-artifact-asserts.py` 已改成**先落盘再 `bash <file>`**，与 CI 的 `run: |` 同形。
+>    ⇒ 一句话：**凡是要把长脚本交给 shell，一律落盘，别走命令行参数。**
 >
 > **一处有意为之的差异（留给将来）**：次码/升格那一组 CSS（`.warden-totp-next`/`-ghost`/`-rolling`
 > 与两条 `@keyframes`）**刻意写在全局**而不是窄屏 `@media` 里 —— 徽章是桌面端与窄屏**共用**的组件，
@@ -337,6 +342,68 @@
 >
 > **回滚**：`git revert` fork 的 `ea8e8f42b5` + `fe2b21a7df` + `BW_WEB_VERSION` 改回 `v2026.8.4`
 > （+ 同步 lock 与 `inputs.version` 默认值），再重跑 `Build`。
+
+---
+
+> ### ✅ 上线记录 · 第十六批 / T 段（移动端第四轮反馈 3 条，全部落地，2026-09-14）
+> 版本号 `2026.8.5 → 2026.8.6`。依旧**不是 L4 迁入**，来自用户第四轮移动端反馈。
+> 本轮三条里两条是**上一批遗留的真 Bug**（问题 2、问题 3 都栽在"上批的修法只对了一半"），一条是**上批做法被证伪后重做**。
+>
+> | 需求（用户原话要点） | 根因 | 落法 |
+> |---|---|---|
+> | **问题1**「到点后新主码上移居中并由灰变蓝，上移后会**先变回原主码、再闪一下**才成新主码」 | `totp.service` 用 `Math.round(Date.now()/1000)` 算 `sec`，比 TOTP 真实的 `floor(now/period)` **提前约 0.5s** 越过 `sec===period` ⇒ 动画先按"旧码"起跑，`digits` 后到才纠正 ⇒ 中段闪回 | ① `Math.round` → **`Math.floor`**（与 TOTP 窗口对齐）；② 徽章 `effect()` 的**换窗判据从"时钟 `step` 变了"改成"`digits` 值变了"** ⇒ 动画第一帧拿到的就是新码 |
+> | **问题2**「所有可选项展开都展不开了，只有点下去方框下浅灰一层动画效果就没了」 | 窄屏 R 段那个装在 `<ng-select>` **兄弟位置**的透明热点按钮 `.warden-select-open`：ng-select 判"外部点击"只比 `_select.contains(target)` ⇒ **按它会被判成"点了外面"**，与它自己那次 toggle 打架 ⇒ 展开一次立刻被 `outsideClick` 关掉 | **删掉这个兄弟按钮**，改在包住 `<ng-select>` 的 `<div class="tw-relative tw-w-full">` 上挂 `(pointerdown)`：此时 `target` 必在 `_select` 内，不再被判外部；`onFieldPointerdown` **只对窄屏生效**（`if (!narrow() || disabled) return`），避开宽屏箭头带与输入框聚焦 |
+> | **问题3**「自定义域名居中修好了，但右侧减号按钮没居中、高度没和左侧输入框一行对齐」 | 行容器靠 `align-items: center` 居中时，左列（label + 32px 输入框）比右侧纯图标按钮高 ⇒ 两者视觉中心不齐 | 行加页级钩子 `.warden-domain-row`，窄屏改为 **`align-items: flex-end`** + 清掉 `<bit-form-field>` 的 `margin-bottom` ⇒ 按钮底边贴输入框底边（实测按钮 `cy=231` vs 输入框 `cy=230`，残差 **1px**） |
+>
+> | 步骤 | run | 结果 | 耗时 | 备注 |
+> |---|---|---|---|---|
+> | `Build Web Vault (patched)`（`version=v2026.8.6`） | **`34844777309`** | ✅ success | **5m33s** | 断言步骤 **24 组全绿**（本批新增第 24 组 T 段；R 段 `.warden-select-open` 由正向断言**改成负向**） |
+> | `push-cloudflare` dispatch（workflow 名 `Build`） | **`34845454752`** | ✅ success | **5m25s** | **18/18 步**；第 8 步 `Verify frontend is our patched build (fail hard)` 绿 |
+>
+> - 产物：`bw_web_vault-v2026.8.6`（artifact id `10347717756`，**35.8 MB**）。
+> - 前端源码：fork `shypwd` = **`e8326b216af`** `e8326b216ae039820ebb7d4ab795e81b28bc8f0f`；
+>   warden-worker `main` = **`d26b797`**（CI 第 24 组 + 四处版本默认值 + 收录 6 个 T 段探针 + 2 个引擎/线上探针）。
+> - **线上取证**（走 `-x http://127.0.0.1:7890`）：`vw-version.json` = **`2026.8.6`**；
+>   主 JS 哈希 `cbd08d29774762b2d296` → **`05a80cbf7e5dc88d0603`**（`5482423 B`，上版 `5482582 B`）——
+>   **asset 哈希变了 = 部署生效最硬的证据**；线上 `/css/vaultwarden.css` **95557 B**（上版 91008 B）
+>   与 fork 源码 **逐字节 `cmp` 一致**（原样拷贝、不压缩）。
+> - **产物级标记**（线上 `main.js`）：`warden-domain-row` **2** 次；`Math.floor(Date.now()/1e3)` **1** 次；
+>   `Math.round(Date.now()/1e3)` **0** 次（旧写法已绝）；`warden-select-open` **0** 次（已退役）。
+>   线上 `vaultwarden.css`：`移动端第四轮反馈` 1 次、`align-items: flex-end !important` 1 次；
+>   `warden-select-open` 剩余 **2 处均在"已退役"注释里**（无生效规则）。
+> - **线上运行时 14/14 PASS**（`probe-b16-live.mjs`，真站 + 代理 + 移动视口 390×844 + 触摸）：
+>   ① 外观页 2 个 `bit-select`；② 轻点→展开（3 选项、首项高 37px）；③ 再轻点→收起；
+>   ④ 展开后 **0~600ms 无"关闭帧"**；⑤ 域名行 `alignItems=flex-end`；⑥ 输入框仍 **32px**（S2 居中未被 T 段带坏）；
+>   ⑦ 按钮 `cy=231`(40px) vs 输入框 `cy=230`(32px)；⑧ TOTP 升格**第一帧主码即新码**（`f0="075 400"`=N），
+>   `f0.ghost` 即旧码（`"866 984"`=C）；⑨ 14 帧内**无 `ghost===digits`**；⑩ 主码行**从未退回旧码**；⑪ **0 pageerror**。
+> - **本机复验**（dev server 8099，慢放 + WebKit 双引擎）：`probe-b16-select-postfix.mjs` **10/10**（含宽屏 4 项桌面行为不变）；
+>   **`probe-b16-select-webkit.mjs` 8/8**（WebKit≈iOS Safari —— **Chromium 复现不出的触摸路径**用它兜底）；
+>   `probe-b16-totp-roll.mjs` **6/6**；`probe-b16-notes.mjs` **6/6**（S2 收窄未误伤备注框，仍 54px）；
+>   `falsify-b16.py` **5/5**（离线证伪：把 5 处改动改回去，守卫必须报错 ⇒ 证明守卫不是哑弹）。
+> - 2 步 dispatch（只留 `--retry 3`）⇒ 各**只触发 1 个 run**；推 `main` 那次带 `[skip ci]`（已核 run 列表无新增自动部署）。
+>
+> #### 🔴 本批四条必须记住的教训
+>
+> 1. **"元素在不在 `<ng-select>` 里"是 ng-select 外部点击判定的唯一判据 —— 覆盖层/兄弟按钮都会被判成"点外面"。**
+>    `.warden-select-open` 是 `<ng-select>` 的**兄弟**节点，再"盖在箭头上"也没用：`_checkToClose()` 里
+>    `if (!this._select.contains(target) && !this._dropdown.contains(target)) outsideClick.emit()` 一命中，
+>    面板就被 `NgDropdownPanelComponent` 的 `(outsideClick)="close()"` 关掉。真修法是让**点击目标落在内部**
+>    （包一层 `<div>` 挂 `pointerdown`），而不是"再加一个热区"。
+> 2. **`Math.round(Date.now()/1000)` 用在 TOTP 上是错的，会自相矛盾。** TOTP 窗口是 `floor(now/period)`；
+>    用 `round` 会让"进度条归零"比"`digits` 换值"**早约半秒**发生 ⇒ 动画先按旧码起跑、随后 `digits` 到才纠正，
+>    用户看到的就是"上移后先变回原码、再闪一下"。**判据要么就 `floor`，要么更稳：直接监听 `digits` 值本身有没有变**
+>    （本批即把换窗判据从时钟 `step` 改为 `digits` 变化，彻底不依赖时钟精度）。
+> 3. **修 A 功能的 CSS 选择器，先问一句"这条选择器还命中谁"。** S2 那条为了给域名输入框扩高，写的是
+>    `main#main-content bit-form-field textarea[bitInput]` —— 它会**命中页面上 20+ 个多行输入框**（如备注框 `rows=5`），
+>    把人家压成 32px。T 段收窄成 `.warden-domain-row bit-form-field textarea[bitInput]`，并**专门写 `probe-b16-notes.mjs`
+>    守住"备注框没被压塌"**。⇒ **越界的选择器 = 分布式 Bug**，改窄 + 加回归探针。
+> 4. **`.gitignore` 不支持行尾注释，白名单必须独占一行。** 写成 `!.deploycheck/x.mjs   # 说明` 会把 `# 说明`
+>    一起当成模式 ⇒ **这条白名单静默失效**（文件仍被忽略，`git status` 里也看不出来）。写入后用
+>    `git check-ignore -v <file>` 逐条自证，或看 `git status` 里有没有变成 `??`。**该坑本批实打实踩到过。**
+>
+> **回滚**：`git revert` fork 的 T 段提交（`totp-badge.component.ts` + `totp.service.ts` + `select.component.{ts,html}` +
+> `domain-rules.component.html` + `vaultwarden.css`）+ warden-worker（CI 第 24 组 + 四处版本默认值）
+> 并把 `BW_WEB_VERSION` 改回 `v2026.8.5`（+ 同步 lock 与 `inputs.version` 默认值），再重跑 `Build`。
 
 ---
 

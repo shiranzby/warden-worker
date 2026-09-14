@@ -69,6 +69,10 @@ sql/global_domains_seed.sql
 # ↑ S2 收窄的回归守卫: 备注框不许被压成 32px
 !.deploycheck/falsify-b16.py
 # ↑ 守卫**离线证伪**(把改动改回去必须报错), 防哑弹
+!.deploycheck/probe-b16-select-webkit.mjs
+# ↑ 第二引擎(WebKit≈iOS Safari)复验 T1: Chromium 复现不出的触摸路径, 用 WebKit 兜底
+!.deploycheck/probe-b16-live.mjs
+# ↑ 线上(shypwd.cc.cd)最终验收: T3 升格顺序 + T1 展开 + T2 几何, 走 7890 代理
 
 # Coding assistant
 .ace-tool/
