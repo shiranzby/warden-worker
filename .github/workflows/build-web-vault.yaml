@@ -508,14 +508,20 @@ jobs:
           #                 有人把两边各写一份字面量、数字碰巧还对, CI 就查不出来了。
           #     ⚠️ 不要断言 'warden-head-new' 来代表本批: 它是第十批的标记, 且是
           #        'warden-head-newbar' 的子串, 等于没验。
+          #
+          #     🔴 `grep -qF -- "${lit}"`: 那个 `--` **不能省**。`--warden-safe-bottom` 以 `-` 开头,
+          #        没有 `--` 时 grep 会把它当**命令行选项**, 报 "unrecognized option" 并退出 2,
+          #        `||` 分支立刻触发 ⇒ 看起来像"标记没进产物", 其实是被 shell 吃了。
+          #        (2026-09-14 第一次跑 v2026.8.1 构建就是栽在这一个字符上:
+          #         其余 6 个标记都以 `.` 开头, 全部通过, 只有 '--warden-*' 这一条挂。)
           for lit in warden-head-newbar warden-email-row; do
-            grep -qF "${lit}" .main.js \
+            grep -qF -- "${lit}" .main.js \
               || { echo "❌ 产物 main.js 里找不到第十一批的标记 '${lit}'" >&2; fail=1; }
           done
           for lit in '第十一批 / O 段' '.warden-head-newbar' 'width 0.45s linear 0.45s' \
                      '.warden-save-inline' '.warden-change-email-open' '.warden-cf-actions' \
                      '--warden-safe-bottom'; do
-            grep -qF "${lit}" .vw.css \
+            grep -qF -- "${lit}" .vw.css \
               || { echo "❌ css/vaultwarden.css 里找不到第十一批的标记 '${lit}'" >&2; fail=1; }
           done
           #    ★ 负向守卫 1: H1 那个写死的 74px 必须已经没了 —— 它就是"最后一条被底栏压住
