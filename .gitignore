@@ -90,6 +90,9 @@ sql/global_domains_seed.sql
 # ↑ 第二十批(X 段) 验收: 用 RECON_W/RECON_H 一个脚本跑**两个视口宽度**(默认桌面 1280)。
 #   本批的教训就是"只跑 390px ⇒ 电脑端功能性缺陷活了 6 批", 所以默认值刻意是桌面。
 !.deploycheck/probe-y21-verify.mjs
+!.deploycheck/probe-z22-smoke.mjs
+!.deploycheck/probe-z22b-rail.mjs
+!.deploycheck/probe-z23-vault.mjs
 # ↑ 第二十一批(Y 段) 验收: 下拉"打开后必须能关掉"的四条路径 × 两个视口。
 #   窄屏用真实触摸(touchscreen.tap); 每次点击都重新取坐标(面板开合会让对话框滚动,
 #   用旧坐标会落到别的控件上, 表现为探针自己造成的"假故障")。
