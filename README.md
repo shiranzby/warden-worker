@@ -1,432 +1,240 @@
-# Warden: A Bitwarden-compatible server for Cloudflare Workers
+# Warden
 
-[![Powered by Cloudflare](https://img.shields.io/badge/Powered%20by-Cloudflare-F38020?logo=cloudflare&logoColor=white)](https://www.cloudflare.com/)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Deploy to Cloudflare Workers](https://img.shields.io/badge/Deploy%20to-Cloudflare%20Workers-orange?logo=cloudflare&logoColor=white)](https://workers.cloudflare.com/)
+<p align="center">
+  <strong>跑在 Cloudflare Workers 上的 Bitwarden 兼容密码库，附带深度适配手机的 Web Vault</strong>
+</p>
 
-This project provides a self-hosted, Bitwarden-compatible server that can be deployed to Cloudflare Workers for free. It's designed to be low-maintenance, allowing you to "deploy and forget" without worrying about server management or recurring costs.
+<p align="center">
+  <img alt="Platform" src="https://img.shields.io/badge/platform-Cloudflare%20Workers-f59e0b?logo=cloudflare&logoColor=white">
+  <img alt="Backend" src="https://img.shields.io/badge/backend-Rust%20%2B%20D1-dea584?logo=rust&logoColor=white">
+  <img alt="Web Vault" src="https://img.shields.io/badge/web%20vault-v2026.8.9-2563eb">
+  <img alt="License" src="https://img.shields.io/badge/license-MIT%20%2B%20GPL--3.0-22c55e">
+  <img alt="Batches" src="https://img.shields.io/badge/customizations-19%20batches-2563eb">
+</p>
+
+Warden 是一个自托管的 Bitwarden 协议兼容服务端：后端是编译成 WASM 的 Rust Worker，数据落在 Cloudflare D1，
+前端是**我们自己改过源码的** Bitwarden Web Vault。官方 Bitwarden 的手机 App、浏览器扩展与网页端都能直接连。
+
+> ⚠️ 本项目与 Bitwarden Inc. 没有任何关联。「Bitwarden」是其注册商标，本项目仅表示**协议兼容**。
+> 🧪 当前面向个人/小团队自用场景，请自行评估后再存放生产数据。
+
+🌐 **简体中文（默认）** ｜ [English](#english)
 
 ---
 
-## 🇨🇳 本 Fork 是什么（先读这段）
+## 目录
 
-> 下面是**上游 warden** 的英文 README（保留原样）。本 Fork 在它之上做了两件事，中文说明集中在这里与
-> **[`docs/交付文档.md`](docs/交付文档.md)**（接手/迁移/开源/跟进上游，看这一篇就够了）。
+- [为什么做 Warden](#为什么做-warden)
+- [功能特性](#功能特性)
+- [架构](#架构)
+- [快速开始](#快速开始)
+- [部署配置](#部署配置)
+- [Web Vault 前端定制](#web-vault-前端定制)
+- [数据与安全](#数据与安全)
+- [跟进上游](#跟进上游)
+- [验证](#验证)
+- [当前限制](#当前限制)
+- [路线图](#路线图)
+- [贡献](#贡献)
+- [许可证](#许可证)
+- [致谢](#致谢)
 
-这是上游 [`qaz741wsd856/warden-worker`](https://github.com/qaz741wsd856/warden-worker) 的一个 Fork，
-现部署于 `https://shypwd.cc.cd`。与上游的差异：
+---
 
-| | 上游 | 本 Fork |
+## 为什么做 Warden
+
+Vaultwarden 已经很优秀，但它仍然需要一台服务器或 VPS —— 要维护，要续费，忘了续费就可能失去访问权。
+
+Warden 把这件事搬到 Cloudflare 的无服务器栈上：**Workers 跑后端，D1 存数据，Workers 静态资源托管前端**。
+部署一次之后基本不用管，也不再有"服务器到期"这件事。
+
+本 Fork 在原生 Warden 之上又多做了一件事：**官方 Web Vault 在手机上很难用**，
+所以我们把前端定制**直接写进前端源码**，做了 19 批针对手机浏览器的改造
+（底部导航栏、输入框高度统一、下拉躲软键盘、应用内深色主题等）。
+
+---
+
+## 功能特性
+
+### 服务端
+
+- 完整的密码库能力：条目、文件夹、收藏、回收站的增删改查
+- Bitwarden Send：通过链接分享加密文本或文件
+- TOTP：存储并生成动态验证码
+- 附件：可选 Cloudflare KV 或 R2 存储
+- 设备管理：查看并吊销活动会话
+- 实时同步与推送通知（WebSocket + 移动端 Push）
+- 内置限流：登录 5 次/60 秒，Send 访问 15 次/60 秒
+- 与官方 Bitwarden 客户端兼容（手机 App / 浏览器扩展 / 网页端）
+
+### 前端（本 Fork 的定制）
+
+- **底部导航栏**：手机上单手可达的页面切换
+- **输入框高度统一**：所有单行输入框统一 38px，可见框统一 40px，内容垂直居中
+- **下拉面板**：贴着输入框展开、躲开软键盘、松手才展开（不再一碰就弹）
+- **发送页重排**：去掉冗余页头、附加选项可折叠、保存/取消落进页面且均分一行
+- **应用内深色主题**：底栏、账户卡片、验证码页、TOTP 徽章全部跟随应用设置
+- 窄屏列表列对齐、搜索栏常驻、二级导航 chips 等一批细节
+
+---
+
+## 架构
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ L3 · 前端 Web Vault                                           │
+│   Bitwarden 官方 Angular 应用（GPL-3.0）                       │
+│   源码 fork：shiranzby/vw_web_builds @ shypwd                  │
+│   定制**写在源码里**，不是运行时打补丁                          │
+│   产物：bw_web_vault-<version>.tar.gz（约 36 MB）              │
+└───────────────────────────┬──────────────────────────────────┘
+                            │ 解压到 public/web-vault/，随 Worker 一起发布
+┌───────────────────────────▼──────────────────────────────────┐
+│ L1 · 后端 Worker                                              │
+│   Rust → WASM（worker-build），入口 src/entry.js（MIT）         │
+│   承担 /api/* 、/identity/* 、/notifications/*                 │
+└───────────────────────────┬──────────────────────────────────┘
+                            │
+┌───────────────────────────▼──────────────────────────────────┐
+│ L2 · 数据层（全部 Cloudflare 托管）                             │
+│   D1 (SQLite)      主数据：用户 / 条目 / 组织 / Send / 2FA      │
+│   KV 或 R2         附件                                        │
+│   Durable Objects  推送通知与 CPU 卸载                          │
+│   Rate Limiters    登录与 Send 访问限流                         │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**L4（运行时注入层）已退役**：早期版本会在部署后往页面注入 `custom/custom.js` + `custom.css`。
+它依赖"上游产物的 DOM 不变"，上游一改就静默失效，也无法被构建期检查保护。
+现在所有定制下沉到源码，构建时就有 **27 组产物断言**守着；线上 `/custom.js`、`/custom.css` 固定返回 404，
+这个 404 本身就是"注入层确已退役"的判据。
+
+---
+
+## 快速开始
+
+### 方式一：让 AI 帮你部署（最省事）
+
+把本仓库连同 **[`AI_Skill.md`](AI_Skill.md)** 一起交给任意 AI 编程助手（Codex / Claude / Cursor 等），
+它会自己向你索取 Cloudflare 邮箱、Global API Key、Account ID、GitHub PAT 等信息，
+然后建资源、设 Secrets、跑构建与部署并验证。**你不需要敲任何命令。**
+
+### 方式二：Fork + 两条 Workflow（推荐）
+
+好消息：**你不需要 fork 那个 1.2 GB 的前端仓库**。
+构建 workflow 里的 `VAULT_REPO` 指向我们公开的 `shiranzby/vw_web_builds`，
+任何人 fork 本仓库都能构建出完全一样的定制前端。
+
+1. **Fork 本仓库**，在 Cloudflare 建好 **D1** 与 **KV**（名字建议 `vault1` / `warden-attachments`）。
+2. 在仓库 **Settings → Secrets and variables → Actions → Secrets** 里添加：
+
+   | Secret | 必填 | 说明 |
+   |---|:--:|---|
+   | `CLOUDFLARE_EMAIL` | ✅ | Cloudflare 登录邮箱 |
+   | `CLOUDFLARE_API_KEY` | ✅ | Global API Key（不是 Bearer Token） |
+   | `CLOUDFLARE_ACCOUNT_ID` | ✅ | Account ID |
+   | `D1_DATABASE_ID` | ✅ | D1 数据库 ID |
+   | `ALLOWED_EMAILS` | ✅ | 允许注册的邮箱（逗号分隔；留空 = 不限制） |
+   | `JWT_SECRET` | ✅ | 访问令牌密钥（随机长串） |
+   | `JWT_REFRESH_SECRET` | ✅ | 刷新令牌密钥（随机长串） |
+   | `R2_NAME` | ➖ | 用 R2 存附件时才需要 |
+
+3. **跑一次构建**：Actions → `Build Web Vault (patched)` → *Run workflow* → `version` 填 `v2026.8.9`（约 5 分钟）。
+4. **跑一次部署**：Actions → `Build` → *Run workflow*（约 4~5 分钟）。
+5. 打开你的域名，注册账号即可使用。
+
+> ⚠️ 顺序不能反：部署侧是按 **artifact 名 `bw_web_vault-<version>` 反查**最新构建的，先 build 才有东西可查。
+
+### 方式三：Wrangler CLI
+
+```bash
+npm i -g wrangler && wrangler login
+
+# 前端产物：从 Actions 的 bw_web_vault-v2026.8.9 artifact 下载后解压
+tar -xzf bw_web_vault.tar.gz && mv web-vault public/web-vault
+
+wrangler d1 migrations apply vault1 --remote
+wrangler deploy
+```
+
+---
+
+## 部署配置
+
+### 自定义域名
+
+Cloudflare 控制台里两步：
+
+1. **DNS**：添加 `A` 记录指向 `192.0.2.1`（假源站，实际由 Worker 接管），开启代理（橙色云）。
+2. **Workers 路由**：`<你的域名>/*` → Worker `warden-worker`。
+
+不用自定义域的话，在 `wrangler.toml` 里把 `workers_dev = true` 打开（默认关闭，因为 `*.workers.dev` 容易出 1101）。
+
+### 常用变量
+
+`wrangler.toml` 的 `[vars]` 是配置来源，常用的有：
+
+| 变量 | 默认 | 说明 |
 |---|---|---|
-| 前端来源 | 直接下载 Vaultwarden 的 `bw_web_builds` 预编译包 | **从我们自己维护的源码 fork 构建**：[`shiranzby/vw_web_builds`](https://github.com/shiranzby/vw_web_builds) 分支 `shypwd` |
-| 前端定制方式 | 部署后往 `public/css/` 覆盖一个 CSS | **直接写在前端源码里**，随构建产物一起出 |
-| 运行时注入层 `custom/custom.js` | 有（这是上游那套） | **已删除**，`/custom.js`、`/custom.css` 固定 404 |
-| 移动端适配 | 无 | **19 批**针对手机浏览器的改造（底栏导航、输入框高度、下拉躲软键盘、深色主题等） |
-| 构建期保护 | 无 | **27 组产物断言**：每批定制都在 CI 里对真实产物 grep 校验，rebase 丢改动会立刻红 |
-| 前端版本 | 跟随上游 `v2026.6.4` | **v2026.8.9**（`/vw-version.json` 可查） |
+| `DISABLE_USER_REGISTRATION` | `"false"` | 设为 `"true"` 隐藏注册入口 |
+| `BASE_URL` | 自动推断 | 生成文件上下链时用的站点地址 |
 
-### 分层（L1 / L2 / L3）
+其余绑定（D1 / KV / R2 / Durable Objects / 限流）都在 `wrangler.toml` 里，改完记得重新部署。
 
-```
-L3 前端 Web Vault   源我们在 fork 里改（GPL-3.0）→ 构建产物 bw_web_vault-<ver>.tar.gz
-                        ↓ 作为静态资源随 Worker 一起发布（public/web-vault/）
-L1 后端 Worker      Rust → WASM（MIT，上游 warden © 2025 Deep Gaurav）
-                        ↓
-L2 数据             Cloudflare D1（主数据）+ KV/R2（附件）+ Durable Objects（推送）+ 限流
-```
+### 前端版本
 
-**L4（运行时注入层）已退役** —— 这是本项目一个明确的设计选择：
-运行时补丁依赖"上游产物的 DOM 不变"，一改就静默失效且无法被构建期检查保护；
-下沉到源码后，每批定制都能在 CI 里被 grep 到。代价是要跟着上游 rebase，
-流程见 [`docs/交付文档.md` §7](docs/交付文档.md#7-上游跟进与长期维护)。
-
-### 一分钟部署到你自己的 Cloudflare
-
-**你不需要 fork 那个 1.2 GB 的前端仓库** —— 构建 workflow 里的 `VAULT_REPO` 指向我们公开的
-`shiranzby/vw_web_builds`，任何人 fork 本仓库都能构建出同样的定制前端。
-
-1. **Fork 本仓库**，然后在 Cloudflare 建好 **D1**（建议名 `vault1`）和 **KV**（附件用），
-   在仓库 *Settings → Secrets* 里加：
-   `CLOUDFLARE_EMAIL`、`CLOUDFLARE_API_KEY`、`CLOUDFLARE_ACCOUNT_ID`、`D1_DATABASE_ID`、
-   `ALLOWED_EMAILS`、`JWT_SECRET`、`JWT_REFRESH_SECRET`（可选 `R2_NAME`）。
-2. **跑一次构建**：Actions → `Build Web Vault (patched)` → *Run workflow* → `version` 填 `v2026.8.9`。
-3. **跑一次部署**：Actions → `Build` → *Run workflow*。
-4. 绑自定义域：DNS 加 `A → 192.0.2.1`（开橙色云）+ Workers Routes `<你的域名>/*`。
-
-自检：`https://<你的域名>/vw-version.json` 应返回 `{"version":"2026.8.9"}`，
-且 `/custom.js` 与 `/custom.css` 都是 **404**。
-
-> 更细的步骤（迁移数据、回滚、开源合规、上游跟进）见
-> **[`docs/交付文档.md`](docs/交付文档.md)**。
-
-> 🤖 **想让 AI 帮你部署？**
-> 把本仓库连同 **[`AI_Skill.md`](AI_Skill.md)** 一起交给 AI（Codex / Claude / Cursor / 任意 Agent），
-> 它会自动向你索取 Account ID、API Key、D1/KV ID 等信息，然后自己建资源、设 Secrets、
-> 跑构建与部署并验证。**你不需要自己敲任何命令。**
-
-### 许可证（两部分，别混淆）
-
-- **后端（本仓库，`src/`、`migrations/` 等）：MIT** —— 见 `LICENSE`，© 2025 Deep Gaurav。
-- **前端（构建产物，来自 Bitwarden clients）：GPL-3.0** —— 见 `.vwsrc/LICENSE_GPL.txt`、
-  `.vwsrc/LICENSE_BITWARDEN.txt`。
-- 「Bitwarden」是注册商标。本项目只是**协议兼容**，不是官方项目，也不得用其商标/Logo 对外宣称。
-
----
-
-## Why another Bitwarden server?
-
-While projects like [Vaultwarden](https://github.com/dani-garcia/vaultwarden) provide excellent self-hosted solutions, they still require you to manage a server or VPS. This can be a hassle, and if you forget to pay for your server, you could lose access to your passwords.
-
-Warden aims to solve this problem by leveraging the Cloudflare Workers ecosystem. By deploying Warden to a Cloudflare Worker and using Cloudflare D1 for storage, you can have a completely free, serverless, and low-maintenance Bitwarden server.
-
-## Features
-
-* **Core Vault Functionality:** Create, read, update, and delete ciphers and folders.
-* **File Attachments:** Optional Cloudflare KV or R2 storage for attachments.
-* **Bitwarden Send:** Share encrypted text or files via a link.
-* **Device Management:** View and revoke active sessions.
-* **Live Sync & Push Notifications:** Real-time vault updates via WebSocket and mobile push.
-* **TOTP Support:** Store and generate Time-based One-Time Passwords.
-* **Bitwarden Compatible:** Works with official Bitwarden clients.
-* **Free to Host:** Runs on Cloudflare's free tier.
-* **Low Maintenance:** Deploy it once and forget about it.
-* **Secure:** Your encrypted data lives in your Cloudflare D1 database.
-* **Easy to Deploy:** Get up and running in minutes with the Wrangler CLI.
-
-### Attachments Support
-
-Warden supports file attachments using either **Cloudflare KV** or **Cloudflare R2** as the storage backend:
-
-| Feature | KV | R2 |
-|---------|----|----|  
-| Max file size | **25 MB** (hard limit) | 100 MB (By request body size limit of Workers) |
-| Credit card required | **No** | Yes |
-| Streaming I/O | Yes | Yes |
-
-**Backend selection:** R2 takes priority — if R2 is configured, it will be used. Otherwise, KV is used.
-
-See the [deployment guide](docs/deployment.md) for setup details. R2 may incur additional costs; see [Cloudflare R2 pricing](https://developers.cloudflare.com/r2/pricing/).
-
-### Bitwarden Send
-
-- **Text Send:** Enabled by default, no extra configuration required.
-- **File Send:** Requires a storage backend (KV or R2), same as [attachments](#attachments-support).
-
-> [!NOTE]
-> Due to the D1 single-row size limit of 2 MB, the maximum text Send size is approximately **1.8 MiB**. Additionally, the `/api/sync` endpoint serializes all of the current user's Sends into the response. A large number of Sends or very large text Sends will significantly increase CPU time and response size.
-
-
-## Current Status
-
-**This project is not yet feature-complete**, ~~and it may never be~~. It currently supports the core functionality of a personal vault, including TOTP. However, it does **not** support the following features:
-
-* Sharing
-* 2FA login (except TOTP)
-* Emergency access
-* Admin operations
-* Organizations
-* Other Bitwarden advanced features
-
-There are no immediate plans to implement these features. The primary goal of this project is to provide a simple, free, and low-maintenance personal password manager.
-
-## Compatibility
-
-* **Browser Extensions:** Chrome, Firefox, Safari, etc. (Tested 2026.3.0 on Chrome)
-* **Android App:** The official Bitwarden Android app. (Tested 2026.4.0)
-* **iOS App:** The official Bitwarden iOS app. (Tested 2026.4.0)
-
-## Demo
-
-A demo instance is available at [warden.qqnt.de](https://warden.qqnt.de).
-
-You can register a new account using an email ending with `@warden-worker.demo` (The email does not need verification).
-
-If you decide to stop using the demo instance, please delete your account to make space for others.
-
-It's highly recommended to deploy your own instance since the demo can hit the rate limit and be disabled by Cloudflare.
-
-## Getting Started
-
-- Choose a deployment path: [CLI Deployment](docs/deployment.md#cli-deployment) or [Github Actions Deployment](docs/deployment.md#cicd-deployment-with-github-actions).
-- Set secrets and optional attachments per the deployment doc.
-- Configure Bitwarden clients to point at your worker URL.
-
-## Frontend (Web Vault)
-
-<!-- ⚠️ 本节已被本 Fork 改写：上游原文说"下载 Vaultwarden 的 bw_web_builds 预编译包"，
-     本 Fork 改为**从自己的源码 fork 构建**，且不再有 public/css 覆盖那一步。 -->
-
-The frontend is bundled with the Worker using [Cloudflare Workers Static Assets](https://developers.cloudflare.com/workers/static-assets/).
-
-**本 Fork 与上游不同**：前端不是下载上游预编译包，而是从我们维护的源码 fork
-[`shiranzby/vw_web_builds`](https://github.com/shiranzby/vw_web_builds)（分支 `shypwd`）构建出来的 ——
-所有定制都**直接写在前端源码里**，随构建产物一起发布，不再有"部署后覆盖 CSS"这一层。
-
-由 `build-web-vault.yaml`（手动触发，输入 `version`）完成：
-拉源码 → `npm ci` → `dist:oss:selfhost` → 打 `bw_web_vault-<version>.tar.gz`
-→ **27 组产物断言** → 上传为 Actions artifact（保留 90 天）。
-随后 `push-cloudflare.yaml` 按 artifact 名反查、解压到 `public/web-vault/` 并部署。
-
-**How it works:**
-- Static files (HTML, CSS, JS) are served directly by Cloudflare's edge network.
-- API requests (`/api/*`, `/identity/*`) are routed to the Rust Worker.
-- No separate Pages deployment or domain configuration needed.
-
-**Version pinning（版本号四处，必须同步）：**
+版本号**四处必须同时改**，少一处 CI 就会红或部署错位：
 
 | # | 位置 | 当前值 |
 |---|---|---|
 | 1 | fork `apps/web/package.json` 的 `version` | `2026.8.9` |
 | 2 | fork `package-lock.json` 的 `packages["apps/web"].version` | `2026.8.9` |
-| 3 | `build-web-vault.yaml` 的 `inputs.version` 默认值 | `v2026.8.9` |
-| 4 | `push-cloudflare.yaml` 的 `BW_WEB_VERSION` 默认值 | `v2026.8.9` |
+| 3 | `build-web-vault.yaml` 的 `inputs.version` | `v2026.8.9` |
+| 4 | `push-cloudflare.yaml` 的 `BW_WEB_VERSION` | `v2026.8.9` |
 
-改版本只升 **patch 位**，让 `/vw-version.json` 自己成为"是否上线成功"的判据。
-⚠️ **改 workflow 的那次 push 必须带 `[skip ci]`**，否则会自动触发一次找不到新 artifact 的部署。
+---
 
-> [!NOTE]
-> Migrating from separate frontend deployment? If you previously deployed the frontend separately to Cloudflare Pages, you can delete the `warden-frontend` Pages project and re-setup the router for the worker. The frontend is now bundled with the Worker and no longer requires a separate deployment.
+## Web Vault 前端定制
 
-> [!WARNING]
-> The web vault frontend comes from Vaultwarden and therefore exposes many advanced UI features, but most of them are non-functional. See [Current Status](#current-status).
+前端源码在独立仓库 **[`shiranzby/vw_web_builds`](https://github.com/shiranzby/vw_web_builds)**（`shypwd` 分支），
+约 1.2 GB，不塞进本仓库。19 批定制的逐批记录（需求 → 根因 → 落法 → 验证 → 踩坑 → 回滚）在
+**[`docs/webvault-migration-checklist.md`](docs/webvault-migration-checklist.md)**。
 
-## Configure Custom Domain (Optional)
+| 批 | 版本 | 主题 |
+|---|---|---|
+| P0–P7 | 2026.8.0 | 结构迁移：删除注入层，定制下沉到源码 |
+| 第十 ~ 第十九批 | 2026.8.1 → 2026.8.9 | 移动端与体验反馈，每批一批 |
 
-The default `*.workers.dev` domain is disabled by default, since it may throw 1101 error. You can enable it by setting `workers_dev = true` in `wrangler.toml`.
+**CI 会做 27 组产物断言**：每组既有正向检查（本批定制的字面量必须在产物里），
+也有负向守卫（"只在窄屏生效"的规则不能被写成全局，否则桌面端跟着遭殃）。
+rebase 时丢了哪一批，CI 就会红在哪一组 —— 这是"定制下沉到源码"最大的收益。
 
-If you want to use a custom domain instead of the default `*.workers.dev` domain, follow these steps:
+---
 
-### Step 1: Add DNS Record
+## 数据与安全
 
-1. Log in to [Cloudflare Dashboard](https://dash.cloudflare.com/)
-2. Select your domain (e.g., `example.com`)
-3. Go to **DNS** → **Records**
-4. Click **Add record**:
-   - **Type:** `A` (or `AAAA` for IPv6)
-   - **Name:** your subdomain (e.g., `vault` for `vault.example.com`)
-   - **IPv4 address:** `192.0.2.1` (this is a placeholder, the actual routing is handled by Worker)
-   - **Proxy status:** **Proxied** (orange cloud icon - this is required!)
-   - **TTL:** Auto
-5. Click **Save**
+- 条目内容用**主密码派生的密钥**在客户端加密，服务端只存密文，**看不到明文**。
+  换域名、迁数据库都不会影响解密；但**主密码丢了谁也救不回来**。
+- 全部数据在你自己的 Cloudflare 账号里，本项目不接触、不收集任何数据。
+- `JWT_SECRET` / `JWT_REFRESH_SECRET` 等密钥只进 GitHub Secrets，不要写进仓库。
+- 定时备份请开启 `backup-d1.yaml` workflow，并**定期演练恢复**（没演练过的备份不算备份）。
 
-> [!IMPORTANT]
-> The **Proxy status must be "Proxied"** (orange cloud). If it shows "DNS only" (gray cloud), Worker routes will not work.
+---
 
-### Step 2: Add Worker Route
+## 跟进上游
 
-1. Go to **Workers & Pages** → Select your `warden-worker`
-2. Click **Settings** → **Domains & Routes**
-3. Click **Add** → **Route**
-4. Configure the route:
-   - **Route:** `vault.example.com/*` (replace with your domain)
-   - **Zone:** Select your domain zone
-   - **Worker:** `warden-worker`
-5. Click **Add route**
+有**两条**独立的线，节奏不同：
 
-## Built-in Rate Limiting
+| 线 | 上游 | 做法 |
+|---|---|---|
+| 后端 | `qaz741wsd856/warden-worker` | Sync fork 即可；留意 `migrations/` 与 `wrangler.toml` 有没有新增绑定 |
+| 前端 | `bitwarden/clients`（经 `vaultwarden/vw_web_builds` 看 tag） | 在 `vw_web_builds` 里 `git rebase --onto <新tag> <旧tag> shypwd`；冲突热点：`vaultwarden.css`、`libs/components/src/{select,disclosure,toggle-group}`、`libs/tools/send/**`、i18n `messages.json` |
 
-This project includes rate limiting powered by [Cloudflare's Rate Limiting API](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/). Sensitive endpoints are protected:
+rebase 完改"版本号四处"，跑一次构建 —— CI 的 27 组断言会告诉你哪一批定制丢了。
 
-| Endpoint | Rate Limit | Key Type | Purpose |
-|----------|------------|----------|---------|
-| `/identity/connect/token` (password grant) | 5 req/min per email + 5 req/min per IP | Email + IP address | Prevent password brute force and credential stuffing |
-| `/identity/connect/token` (send access) | 15 req/min | IP address | Prevent Send password brute force |
-| `/api/sends/access/*` (password protected) | 10 req/min | IP address | Prevent Send password brute force |
-| `/api/accounts/register` | 5 req/min | IP address | Prevent mass registration & email enumeration |
-| `/api/accounts/prelogin` | 5 req/min | IP address | Prevent email enumeration |
+---
 
-You can adjust the rate limit settings in `wrangler.toml`:
-
-```toml
-[[ratelimits]]
-name = "LOGIN_RATE_LIMITER"
-namespace_id = "1001"
-# Adjust limit (requests) and period (10 or 60 seconds)
-simple = { limit = 5, period = 60 }
-
-[[ratelimits]]
-name = "SEND_ACCESS_RATE_LIMITER"
-namespace_id = "1003"
-# Public Send password checks use a slightly wider IP limit.
-simple = { limit = 10, period = 60 }
-```
-
-> [!NOTE]
-> The `period` must be either `10` or `60` seconds. See [Cloudflare documentation](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/) for details.
-
-If the binding is missing, requests proceed without rate limiting (graceful degradation).
-
-## Configuration
-
-### CPU offloading (via Durable Objects)
-
-Cloudflare Workers Free plan has a very small per-request CPU budget. Two kinds of endpoints are particularly CPU-heavy:
-
-- import endpoint: large JSON payload (typically 500kB–1MB) + parsing + batch inserts.
-- registration, login and password verification endpoint: server-side PBKDF2 for password verification.
-
-To keep the main Worker fast while still supporting these operations, Warden can **offload selected endpoints to Durable Objects (DO)**:
-
-- **Heavy DO (`HEAVY_DO`)**: implemented in Rust as `HeavyDo` (reuses the existing axum router) so CPU-heavy endpoints can run with a higher CPU budget.
-
-**How to enable/disable**
-
-Whether CPU-heavy endpoints are offloaded is determined by whether the `HEAVY_DO` Durable Object binding is configured in `wrangler.toml`.
-
-> [!NOTE]
-> Durable Objects have much higher CPU budget of 30 seconds per request in free plan(see [Cloudflare Durable Objects limits](https://developers.cloudflare.com/durable-objects/platform/limits/)), so we can use it to offload the CPU-heavy endpoints.
->
-> Durable Objects can incur two types of billing: compute and storage. Storage is not used in this project, and the free plan allows 100,000 requests and 13,000 GB-s duration per day, which should be more than enough for most users. See [Cloudflare Durable Objects pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/) for details.
->
-> If you choose to disable Durable Objects, you may need subscribe to a paid plan to avoid being throttled by Cloudflare.
-
-### Live Sync and Push Notifications
-
-Warden supports live sync for vault data via two mechanisms: WebSocket push (for desktop apps and browser extensions) and Mobile push notifications (for official mobile apps).
-
-**WebSocket Push (Desktop & Extensions)**
-
-This feature is powered by Durable Objects and enabled by default when the `NOTIFY_DO` Durable Object binding is configured in `wrangler.toml`. Removing this binding (and migration) will gracefully disable WebSocket notifications.
-
-**Mobile Push Notifications**
-
-Warden supports push notifications to official Bitwarden mobile apps via the Bitwarden push relay service.
-
-**Setup:**
-
-1. Obtain an installation ID and key from [https://bitwarden.com/host/](https://bitwarden.com/host/).
-2. Store the credentials as secrets (`PUSH_INSTALLATION_ID` & `PUSH_INSTALLATION_KEY`) via the Cloudflare dashboard or `wrangler` cli.
-3. Enable push by setting `PUSH_ENABLED` to `true` in `wrangler.toml` `[vars]` or via the Cloudflare dashboard.
-
-Optionally, you can override the default relay endpoints by setting `PUSH_RELAY_URI` and `PUSH_IDENTITY_URI` (defaults to `https://push.bitwarden.com` and `https://identity.bitwarden.com`).
-
-For detailed configuration and troubleshooting, see the [Vaultwarden wiki on push notifications](https://github.com/dani-garcia/vaultwarden/wiki/Enabling-Mobile-Client-push-notification).
-
-### Other Environment Variables
-
-Configure environment variables in `wrangler.toml` under `[vars]`, or set them via Cloudflare Dashboard:
-
-* **`BASE_URL`** (Optional):
-  - Overrides the extracted base URL for up/down URLs for files.
-  - Format: Include HTTPS protocol, domain, and port (if using non-443 reverse proxy). Do not include any trailing path.
-  - Example: `https://vault.example.com` or `https://vault.example.com:8443`
-  - If not set, falls back to extracting from the incoming request.
-* **`PASSWORD_ITERATIONS`** (Optional, Default: `600000`):
-  - PBKDF2 iterations for server-side password hashing.
-  - Minimum is 600000.
-* **`TRASH_AUTO_DELETE_DAYS`** (Optional, Default: `30`): 
-  - Days to keep soft-deleted items before purge. 
-  - Set to `0` or negative to disable.
-* **`IMPORT_BATCH_SIZE`** (Optional, Default: `30`): 
-  - Batch size for import/delete operations. 
-  - `0` disables batching.
-* **`DISABLE_USER_REGISTRATION`** (Optional, Default: `true`): 
-  - Controls showing the registration button in the client UI (server behavior unchanged).
-* **`AUTHENTICATOR_DISABLE_TIME_DRIFT`** (Optional, Default: `false`): 
-  - Set to `true` to disable ±1 time step drift for TOTP validation.
-* **`ATTACHMENT_MAX_BYTES`** (Optional): 
-  - Max size for individual attachment files. 
-  - Example: `104857600` for 100MB.
-* **`ATTACHMENT_TOTAL_LIMIT_KB`** (Optional): 
-  - Max total attachment storage per user in KB. 
-  - Example: `1048576` for 1GB.
-* **`ATTACHMENT_TTL_SECS`** (Optional, Default: `300`, Minimum: `60`): 
-  - TTL for attachment upload/download URLs.
-* **`SEND_TEXT_MAX_BYTES`** (Optional, Default: `1887436` ≈ 1.8 MiB):
-  - Max size for text Send content. Constrained by D1's 2 MB single-row limit.
-* **`SEND_MAX_BYTES`** (Optional, Default: `104857600` = 100 MiB):
-  - Max file size for file Sends. Subject to the same KV/R2 limits as attachments.
-* **`USER_SEND_LIMIT_KB`** (Optional):
-  - Max total Send file storage per user in KB.
-* **`SEND_TTL_SECS`** (Optional, Default: `300`):
-  - TTL for Send file upload/download URLs.
-
-### Scheduled Tasks (Cron)
-
-The worker runs a scheduled task to clean up soft-deleted items. By default, it runs daily at 03:00 UTC (`wrangler.toml` `[triggers]` cron `"0 3 * * *"`). Adjust as needed; see [Cloudflare Cron Triggers documentation](https://developers.cloudflare.com/workers/configuration/cron-triggers/) for cron expression syntax.
-
-## Database Operations
-
-- **Backup & restore:** See [Database Backup & Restore](docs/db-backup-recovery.md#github-actions-backups) for automated backups and manual restoration steps.
-- **Time Travel:** See [D1 Time Travel](docs/db-backup-recovery.md#d1-time-travel-point-in-time-recovery) to restore to a point in time.
-- **Seeding Global Equivalent Domains (optional):** See [docs/deployment.md](docs/deployment.md) for seeding in CLI deploy and CI/CD.
-- **Local dev with D1:**
-  - Quick start: `wrangler dev --persist`
-  - Full stack (with web vault): download frontend assets as in deployment doc, then `wrangler dev --persist`
-  - Import a backup locally: `wrangler d1 execute vault1 --file=backup.sql`
-  - Inspect local DB: SQLite file under `.wrangler/state/v3/d1/`
-
-## Local Development with D1
-
-Run the Worker locally with D1 support using Wrangler.
-
-**Quick start (API-only):**
-
-```bash
-wrangler dev --persist
-```
-
-**Full stack (with Web Vault):**
-
-1. Download the frontend assets (see [deployment doc](docs/deployment.md#download-the-frontend-web-vault)).
-2. Start locally:
-
-   ```bash
-   wrangler dev --persist
-   ```
-
-3. Access the vault at `http://localhost:8787`.
-
-**Using production data temporarily:**
-
-1. Download and decrypt a backup (see [backup doc](docs/db-backup-recovery.md#restoring-database-to-cloudflare-d1)).
-2. Import locally without `--remote`:
-
-   ```bash
-   wrangler d1 execute vault1 --file=backup.sql
-   ```
-
-3. Start `wrangler dev --persist` and point clients to `http://localhost:8787`.
-
-**Inspect local SQLite:**
-
-```bash
-ls .wrangler/state/v3/d1/
-sqlite3 .wrangler/state/v3/d1/miniflare-D1DatabaseObject/*.sqlite
-```
-
-> [!NOTE]
-> Local dev requires Node.js and Wrangler. The Worker runs in a simulated environment via [workerd](https://github.com/cloudflare/workerd).
-
-## Updating Your Fork
-
-If you deployed via a GitHub fork, keeping up to date is straightforward:
-
-1. **Watch for new releases** — On [this repository](https://github.com/qaz741wsd856/warden-worker), click **Watch** → **Custom** → check **Releases**. You'll be notified when a new version is published.
-2. **Sync your fork** — Go to your fork on GitHub, click **Sync fork** → **Update branch**. This pulls the latest changes from upstream into your fork's default branch.
-3. **Automatic deployment** — If you set up CI/CD via GitHub Actions, the push-to-main workflow will automatically build and deploy the new version to your Cloudflare Worker. No manual steps needed.
-
-> [!TIP]
-> It is recommended to sync your fork when a new release is published in the upstream, so you always have the latest features and security fixes.
-
-### 本 Fork：跟进上游要分两条线
-
-上游同步只能照顾到**后端**。前端的定制在另一个仓库，**必须单独 rebase**，
-否则下一次构建就会把上游的新代码和我们旧的定制掺在一起：
-
-| 线 | 上游 | 频率 | 做法 |
-|---|---|---|---|
-| 后端 | `qaz741wsd856/warden-worker` | 低 | 就是上面的 Sync fork；留意 `migrations/` 与 `wrangler.toml` 有没有新增绑定 |
-| 前端 | `bitwarden/clients`（经 `vaultwarden/vw_web_builds` 看 tag） | 每月发版 | 在 `vw_web_builds` 里 `git rebase --onto <新tag> <旧tag> shypwd`；冲突热点：`vaultwarden.css`、`libs/components/src/{select,disclosure,toggle-group}`、`libs/tools/send/**`、i18n `messages.json` |
-
-rebase 完改"版本号四处"，跑一次构建 —— **CI 的 27 组断言会告诉你哪一批定制丢了**
-（每组对应一批，红了就对着那一批修）。静态断言只能证明"字面量还在"，
-行为对不对要再跑一次运行期探针。
-
-完整流程（含冲突热点、回滚、节奏建议）见
-[`docs/交付文档.md` §7](docs/交付文档.md#7-上游跟进与长期维护)。
-
-### 验证工具箱（改动后建议都跑一遍）
+## 验证
 
 ```bash
 # ① 产物断言：把 CI 那 27 组脚本抽出来，在你刚构建的产物上实跑
@@ -437,17 +245,218 @@ python .deploycheck/probe-s15-guard.py
 
 # ③ 窄屏运行期验收（本地 8099；带 WARDEN_TEST_PROXY 则走线上）
 node .deploycheck/probe-w19-verify.mjs
-WARDEN_TEST_BASE=https://<你的域名> WARDEN_TEST_PROXY=http://127.0.0.1:7890 \
-  node .deploycheck/probe-w19-verify.mjs
+```
+
+部署后自检：
+
+```bash
+curl -s https://<你的域名>/vw-version.json                    # {"version":"2026.8.9"}
+curl -s -o /dev/null -w "%{http_code}\n" https://<你的域名>/custom.js   # 404
 ```
 
 > ⚠️ `.deploycheck/` 默认整体 gitignore，只有逐个加白名单的脚本才入库
 > （目录里还有带测试账号明文的文件，**绝不能按扩展名批量放行**）。
 
+---
+
+## 当前限制
+
+- 前端源码 1.2 GB，必须独立仓库；前端产物（约 36 MB）不在 git 里，新环境要跑一次构建 workflow。
+- Actions artifact 只保留 **90 天**，超期后旧版本无法直接回滚，需要另存。
+- 定制靠"产物字面量"保护；若上游把某段逻辑整个重写，字面量会消失 → CI 会红，需要人工补新判据。
+- Web Vault 来自 Vaultwarden/Bitwarden 的构建，会显示不少**本服务端未实现**的高级功能入口。
+- 免费额度取决于 Cloudflare 的 Workers / D1 / KV 限额，重度使用请留意用量。
+
+---
+
+## 路线图
+
+- [x] 删除运行时注入层，定制全部下沉到源码
+- [x] 移动端 19 批适配（导航栏 / 输入框 / 下拉 / 发送页 / 深色主题）
+- [x] 构建期 27 组产物断言 + 负向守卫离线证伪
+- [x] 交付文档与 AI 部署手册
+- [ ] 附件改用 R2 作为默认后端
+- [ ] 前端跟进到更新的 Bitwarden 版本
+- [ ] 组织/团队相关功能的完整支持
+- [ ] 更完善的备份恢复演练脚本
+
+---
+
+## 贡献
+
+欢迎 Issue 与 PR。提交前请注意：
+
+- 后端改动请跑 `cargo fmt` 与 `cargo clippy --target wasm32-unknown-unknown --no-deps`。
+- **改前端**必须跑一次 `run-artifact-asserts.py`，并给新批次补一组产物断言（含负向守卫）。
+- 改 workflow 的那次提交请带 `[skip ci]`。
+- 不要在公开文件里写任何账号、密钥或凭据前缀。
+
+---
+
+## 许可证
+
+本项目包含两部分代码，许可证不同：
+
+| 部分 | 许可证 | 位置 |
+|---|---|---|
+| 后端（本仓库 `src/`、`migrations/` 等） | **MIT** | [`LICENSE`](LICENSE)（© 2025 Deep Gaurav） |
+| 前端（构建产物，来自 Bitwarden clients） | **GPL-3.0** | `.vwsrc/LICENSE_GPL.txt`、`.vwsrc/LICENSE_BITWARDEN.txt` |
+
+「Bitwarden」是 Bitwarden Inc. 的注册商标，本项目仅表示协议兼容，不得用其商标或 Logo 对外宣称。
+
+---
+
+## 致谢
+
+- [warden](https://github.com/qaz741wsd856/warden-worker) —— 本项目的上游后端
+- [Vaultwarden](https://github.com/dani-garcia/vaultwarden) 与 [bw_web_builds](https://github.com/dani-garcia/bw_web_builds)
+- [Bitwarden](https://github.com/bitwarden/clients) —— Web Vault 的源码来源
+- Cloudflare Workers / D1 / KV
+
+---
+---
+
+# English
+
+<p align="center">
+  <strong>A Bitwarden-compatible password server on Cloudflare Workers, with a mobile-tuned Web Vault</strong>
+</p>
+
+🌐 [简体中文](#warden)（默认）｜ **English**
+
+Warden is a self-hosted, Bitwarden-compatible server. The backend is a Rust Worker compiled to WASM,
+data lives in Cloudflare D1, and the frontend is a **source-forked** Bitwarden Web Vault.
+Official Bitwarden mobile apps, browser extensions and the web client all work out of the box.
+
+> ⚠️ Not affiliated with Bitwarden Inc. "Bitwarden" is a registered trademark; this project is only *protocol-compatible*.
+> 🧪 Aimed at personal / small-team self-hosting. Evaluate before storing production data.
+
+## Why Warden
+
+Vaultwarden is excellent, but it still needs a server or VPS — you maintain it, you renew it,
+and a missed renewal can cost you access. Warden moves the whole thing onto Cloudflare's serverless stack:
+**Workers for the backend, D1 for storage, Workers static assets for the frontend.** Deploy once and forget it.
+
+This fork goes one step further: the official Web Vault is painful on phones, so we put our
+customizations **directly into the frontend source** — 19 batches of mobile work
+(bottom tab bar, unified input heights, dropdowns that dodge the soft keyboard, in-app dark theme, …).
+
+## Features
+
+**Server** — full vault CRUD (items, folders, favorites, trash) · Bitwarden Send · TOTP ·
+attachments on KV or R2 · device management · live sync and push notifications ·
+built-in rate limiting · compatible with official Bitwarden clients.
+
+**Frontend (this fork's customizations)** — bottom tab bar · every single-line input is 38px with a
+40px visible box and vertically centered content · dropdown panels that open below the field, avoid
+the keyboard, and expand on *release* rather than on touch · a reworked Send page (no redundant header,
+collapsible extra options, save/cancel in-page and evenly split) · in-app dark theme covering the tab bar,
+account card, authenticator page and TOTP badge · plus column alignment, persistent search bar and more.
+
+## Architecture
+
+| Layer | What | Tech | License |
+|---|---|---|---|
+| L3 | Web Vault frontend | Angular, source fork `shiranzby/vw_web_builds@shypwd` | GPL-3.0 |
+| L1 | Backend Worker | Rust → WASM (`src/entry.js`) | MIT |
+| L2 | Data | D1 + KV/R2 + Durable Objects + rate limiters | — |
+
+The frontend is built into `bw_web_vault-<version>.tar.gz` (≈36 MB), unpacked to `public/web-vault/`
+and published together with the Worker.
+
+**L4 (runtime injection) is retired.** We used to inject `custom/custom.js` + `custom.css` after deploy.
+That depended on upstream's DOM never changing — it broke silently and no build-time check could catch it.
+All customizations now live in source, guarded by **27 artifact assertions**; `/custom.js` and
+`/custom.css` intentionally return 404.
+
+## Quick Start
+
+**Option A — let an AI deploy it for you.** Hand this repo plus [`AI_Skill.md`](AI_Skill.md) to any coding
+agent. It will ask you for your Cloudflare email, Global API Key, Account ID and GitHub PAT, then create
+resources, set Secrets, run the build and deploy, and verify. You type nothing.
+
+**Option B — fork + two workflows (recommended).** You do *not* need to fork the 1.2 GB frontend repo:
+the build workflow's `VAULT_REPO` points at our public `shiranzby/vw_web_builds`, so anyone who forks
+this repo can build the exact same customized frontend.
+
+1. Fork this repo. Create a **D1** database and a **KV** namespace in Cloudflare.
+2. Add repo Secrets: `CLOUDFLARE_EMAIL`, `CLOUDFLARE_API_KEY`, `CLOUDFLARE_ACCOUNT_ID`,
+   `D1_DATABASE_ID`, `ALLOWED_EMAILS`, `JWT_SECRET`, `JWT_REFRESH_SECRET` (optional `R2_NAME`).
+3. Actions → `Build Web Vault (patched)` → *Run workflow* → `version` = `v2026.8.9` (~5 min).
+4. Actions → `Build` → *Run workflow* (~4–5 min).
+5. Open your domain and register.
+
+> ⚠️ Order matters: the deploy step looks up the newest artifact named `bw_web_vault-<version>`.
+
+**Option C — Wrangler CLI.** Download the `bw_web_vault-v2026.8.9` artifact, unpack it to
+`public/web-vault`, then `wrangler d1 migrations apply vault1 --remote && wrangler deploy`.
+
+### Custom domain
+
+Add a DNS `A` record pointing to `192.0.2.1` (proxied) and a Workers route `<domain>/*` → `warden-worker`.
+Without a custom domain, set `workers_dev = true` in `wrangler.toml`.
+
+### Version pinning — four places
+
+Fork `apps/web/package.json` · fork `package-lock.json` (`packages["apps/web"].version`) ·
+`build-web-vault.yaml` `inputs.version` · `push-cloudflare.yaml` `BW_WEB_VERSION` —
+currently all `2026.8.9` / `v2026.8.9`.
+
+## Web Vault customizations
+
+Frontend source lives in **[`shiranzby/vw_web_builds`](https://github.com/shiranzby/vw_web_builds)**
+(branch `shypwd`, ≈1.2 GB). Per-batch records live in
+[`docs/webvault-migration-checklist.md`](docs/webvault-migration-checklist.md).
+CI runs **27 artifact assertions** — one group per batch, each with positive checks *and* a negative
+guard (narrow-screen rules must not become global). If a rebase drops a batch, CI turns red on that group.
+
+## Data & security
+
+Items are encrypted client-side with a key derived from your master password; the server only stores
+ciphertext and **cannot read your data**. Migrating the database or changing the domain does not affect
+decryption — but a lost master password is unrecoverable. Keep secrets in GitHub Secrets only,
+enable `backup-d1.yaml`, and rehearse restores.
+
+## Keeping up with upstream
+
+Two independent lines: the **backend** (`qaz741wsd856/warden-worker`, just sync your fork) and the
+**frontend** (`bitwarden/clients` via `vaultwarden/vw_web_builds` tags — rebase with
+`git rebase --onto <new-tag> <old-tag> shypwd`). Expected conflict hot spots: `vaultwarden.css`,
+`libs/components/src/{select,disclosure,toggle-group}`, `libs/tools/send/**`, i18n `messages.json`.
+After rebasing, bump the four version spots and run a build — the 27 assertions will tell you what broke.
+
+## Verification
+
+```bash
+python .deploycheck/run-artifact-asserts.py ../vw_web_builds/apps/web/build 2026.8.9
+python .deploycheck/probe-s15-guard.py
+node .deploycheck/probe-w19-verify.mjs
+curl -s https://<your-domain>/vw-version.json     # {"version":"2026.8.9"}
+```
+
+## Limitations
+
+The frontend repo is 1.2 GB and separate; the build artifact (≈36 MB) is not in git, so a fresh
+environment needs one build run. Artifacts expire after 90 days. Customizations are guarded by
+artifact literals — if upstream rewrites a feature wholesale, a guard may need a new criterion.
+Some advanced UI from upstream is not implemented by this server.
+
 ## Contributing
 
-Issues and PRs are welcome. Please run `cargo fmt` and `cargo clippy --target wasm32-unknown-unknown --no-deps` before submitting.
+Issues and PRs are welcome. Run `cargo fmt` and `cargo clippy --target wasm32-unknown-unknown --no-deps`
+for backend changes. **Frontend changes must run `run-artifact-asserts.py`** and add an assertion group
+for the new batch. Use `[skip ci]` on commits that modify workflows. Never commit credentials.
 
 ## License
 
-This project is licensed under the MIT License. See the `LICENSE` file for details.
+| Part | License | File |
+|---|---|---|
+| Backend (`src/`, `migrations/`, …) | **MIT** | [`LICENSE`](LICENSE) (© 2025 Deep Gaurav) |
+| Frontend (derived from Bitwarden clients) | **GPL-3.0** | `.vwsrc/LICENSE_GPL.txt` |
+
+## Acknowledgements
+
+[warden](https://github.com/qaz741wsd856/warden-worker) ·
+[Vaultwarden](https://github.com/dani-garcia/vaultwarden) ·
+[bw_web_builds](https://github.com/dani-garcia/bw_web_builds) ·
+[Bitwarden clients](https://github.com/bitwarden/clients) · Cloudflare Workers / D1 / KV
