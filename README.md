@@ -59,6 +59,11 @@ L2 数据             Cloudflare D1（主数据）+ KV/R2（附件）+ Durable O
 > 更细的步骤（迁移数据、回滚、开源合规、上游跟进）见
 > **[`docs/交付文档.md`](docs/交付文档.md)**。
 
+> 🤖 **想让 AI 帮你部署？**
+> 把本仓库连同 **[`AI_Skill.md`](AI_Skill.md)** 一起交给 AI（Codex / Claude / Cursor / 任意 Agent），
+> 它会自动向你索取 Account ID、API Key、D1/KV ID 等信息，然后自己建资源、设 Secrets、
+> 跑构建与部署并验证。**你不需要自己敲任何命令。**
+
 ### 许可证（两部分，别混淆）
 
 - **后端（本仓库，`src/`、`migrations/` 等）：MIT** —— 见 `LICENSE`，© 2025 Deep Gaurav。
