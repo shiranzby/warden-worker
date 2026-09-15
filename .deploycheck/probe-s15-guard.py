@@ -48,7 +48,7 @@ TAR = WORK / "bw_web_vault.tar.gz"
 #
 #   ⚠️ 与"漏抄一个词"那条教训(MEMORY ④/第十四批)是**同一类错**, 只是方向相反:
 #      那一次是守卫自己漏词(永远不匹配), 这一次是证伪脚本漏改(永远找不到)。
-BATCHES = ["R_CSS_LITS", "S_CSS_LITS", "T_CSS_LITS", "U_CSS_LITS", "V_CSS_LITS", "W_CSS_LITS"]
+BATCHES = ["R_CSS_LITS", "S_CSS_LITS", "T_CSS_LITS", "U_CSS_LITS", "V_CSS_LITS", "W_CSS_LITS", "X_CSS_LITS"]
 
 
 def _strip_line_continuations(text: str) -> str:
@@ -73,9 +73,16 @@ def _parse_arrays(script: str) -> dict[str, list[str]]:
     return out
 
 
-def _parse_skip_globs(script: str, name: str) -> list[str]:
+def _parse_skip_globs(script: str, name: str) -> list[str] | None:
     """取出该批守卫 `for lit in "${NAME[@]}"; do ... case "${lit}" in <pat>) continue ;; esac` 里的
-    跳过模式。没有 case 块 = 不跳过任何条目。"""
+    跳过模式。
+
+    🔴 返回 `None` 表示**该批根本没有守卫**(workflow 里没有那个 `case` 块) —— 与返回 `[]`
+       (有守卫、但不跳过任何条目)是**两件不同的事**, 调用方必须分开处置:
+       · 第二十批 / X 段就是"整批都是本来就该全局的规则, 故意不加守卫"
+         (见 workflow 第 28 组那段注释), 所以它对每一批都该"整批不参与证伪",
+         而不是把 4 条字面量逐条报成"从不在行首、跳过"。
+    """
     m = re.search(
         r'for lit in "\$\{' + re.escape(name) + r'\[@\]\}"; do[ \t]*\n'
         r'(?:[ \t]*#[^\n]*\n)*'  # do 与 case 之间可能有注释行(V 段就是这样)
@@ -84,19 +91,51 @@ def _parse_skip_globs(script: str, name: str) -> list[str]:
         re.S,
     )
     if not m:
-        return []
+        return None
     body = _strip_line_continuations(m.group(1))
     body = re.sub(r"continue\s*;;", "", body)
-    pats: list[str] = []
-    for piece in body.split("|"):
-        piece = piece.strip()
-        # 末条模式后面紧跟着 `)`(case 的模式终结符), 去掉它;
-        # 再把 shell 的引号**全部**删掉 —— 它们是 `'html.theme_dark '*` 这种
-        # "带引号的前缀 + 裸通配" 的语法噪音, 而 CSS 字面量里不会出现引号。
-        piece = piece.rstrip(")").strip().replace("'", "").replace('"', "")
-        if piece:
-            pats.append(piece)
-    return pats
+    return _pattern_words(body)
+
+
+def _pattern_words(chunk: str) -> list[str]:
+    """按 bash 的规则把一段 `case` 的模式列表切成一个个模式。
+
+    🔴 不能"简单粗暴地把所有引号删掉" —— 模式里可能**合法地**含引号:
+       `'bit-dialog textarea[formcontrolname="text"]'` 的内层双引号是字面量的一部分,
+       删了就永远匹配不上 ⇒ 该条目会被当成"受守卫", 守卫与证伪一起静默失效。
+       (第十八批那版就是用一个 `.replace("'","")` 蒙对了 `'html.theme_dark '*`,
+        但同一招在第二十批这类含引号的字面量上立刻翻车。)
+
+    规则: 单引号内的内容**原样保留**(含其中的双引号); 单引号外遇到 `|` 断词,
+       遇到 `)` 说明模式列表结束(后面就是命令), 直接停。
+       这样 `'html.theme_dark '*`(引号 + 裸通配) 也能拼回 `html.theme_dark *`。
+    """
+    words: list[str] = []
+    cur = ""
+    i, n = 0, len(chunk)
+    while i < n:
+        ch = chunk[i]
+        if ch == "'":
+            j = chunk.find("'", i + 1)
+            if j == -1:
+                j = n
+            cur += chunk[i + 1 : j]
+            i = j + 1
+            continue
+        if ch == "|":
+            words.append(cur)
+            cur = ""
+            i += 1
+            continue
+        if ch == ")":
+            words.append(cur)
+            cur = ""
+            break
+        cur += ch
+        i += 1
+    if cur.strip():
+        words.append(cur)
+    return [w.strip() for w in words if w.strip()]
 
 
 def _load_guard_spec() -> tuple[list[tuple[str, str]], list[str]]:
@@ -108,9 +147,19 @@ def _load_guard_spec() -> tuple[list[tuple[str, str]], list[str]]:
     for name in BATCHES:
         batch = name.split("_")[0]  # R_CSS_LITS -> R
         skips = _parse_skip_globs(script, name)
+        if skips is None:
+            # 整批没有守卫 = workflow 里连 `case` 块都没有 ⇒ 没有"该只在窄屏生效"的规则可证伪。
+            # 不静默略过: 打一行说清, 免得看的人以为漏了。
+            print(f"  [{batch}] 共 {len(arrays[name])} 条, **该批没有负向守卫**(整批均为全局规则) ⇒ 不参与证伪")
+            continue
         print(f"  [{batch}] 共 {len(arrays[name])} 条, 守卫主动跳过: {json.dumps(skips, ensure_ascii=False)}")
         for lit in arrays[name]:
-            if any(fnmatch.fnmatchcase(lit, p) for p in skips):
+            # 🔴 必须先做**精确**比对, 再做 glob —— 因为 `fnmatch` 把 `[...]` 当**字符类**,
+            #    而 CSS 里到处是属性选择器: `textarea[formcontrolname="text"]` 作为模式
+            #    **匹配不上**它自己(fnmatch 会拿 `[formcontrolname="text"]` 当字符集去配)。
+            #    少了这一步, 凡是带方括号的跳过项都会被判成"受守卫", 于是证伪时白跑一趟、
+            #    还可能报出误导性的失败。
+            if lit in skips or any(fnmatch.fnmatchcase(lit, p) for p in skips):
                 if lit not in global_by_design:
                     global_by_design.append(lit)
                 continue

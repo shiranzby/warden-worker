@@ -86,6 +86,9 @@ sql/global_domains_seed.sql
 !.deploycheck/probe-w19-verify.mjs
 # ↑ 第十九批(W 段) 验收: 同一脚本跑两个环境 —— 不带 WARDEN_TEST_PROXY 走 8099 dev server,
 #   带上则走线上(本机直连不通, 必须代理)。判据量的是"用户看见的框", 不是控件本体。
+!.deploycheck/probe-x20-verify.mjs
+# ↑ 第二十批(X 段) 验收: 用 RECON_W/RECON_H 一个脚本跑**两个视口宽度**(默认桌面 1280)。
+#   本批的教训就是"只跑 390px ⇒ 电脑端功能性缺陷活了 6 批", 所以默认值刻意是桌面。
 
 # Coding assistant
 .ace-tool/

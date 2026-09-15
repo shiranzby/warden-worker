@@ -15,9 +15,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "产物标签 / artifact 名 (如 v2026.8.9)。会与源码里的版本核对, 不一致直接失败"
+        description: "产物标签 / artifact 名 (如 v2026.8.10)。会与源码里的版本核对, 不一致直接失败"
         required: true
-        default: "v2026.8.9"
+        default: "v2026.8.10"
 
 env:
   # 我们的前端源码 fork。定制已直接落在源码里(见 fork 的 shypwd 分支)。
@@ -659,8 +659,13 @@ jobs:
           #      顶格(全局); 所有命中都带缩进才算合规。既不依赖缩进几格, 也不写正则。
           #      ⚠️ 每批加守卫时都要**离线证伪一次**(故意改成顶格, 确认它真的报错)再提交。
           for lit in "${R_CSS_LITS[@]}"; do
+            # ⚠️ 第二十批/X 段: `… product-switcher` 这条已被**提升为全局规则**
+            #    —— 用户要求电脑端也去掉那个"产品切换宫格"(它只有一个"回首页"的入口)。
+            #    R 段当初刻意只关窄屏(注释写的"桌面端保持原样, 那是官方给多产品用户准备的入口"),
+            #    本次按用户要求一并去掉 ⇒ 它不再参与本守卫; 存在性断言保留。
             case "${lit}" in
-              'R. 第十四批') continue ;;
+              'R. 第十四批'|\
+              'main#main-content app-header header product-switcher') continue ;;
             esac
             if grep -nF -- "${lit}" .vw.css | grep -qE '^[0-9]+:[^[:space:]]'; then
               echo "❌ 第十四批的规则 '${lit}' 存在顶格(全局)写法: 桌面端也会被藏掉/被压掉" >&2
@@ -895,8 +900,15 @@ jobs:
           #      判据沿用第十四/十五/十六批: `grep -nF` 命中行若在 `行号:` 之后**紧跟非空白字符**
           #      即该处顶格(全局)。只有段横幅不参与(它本来就顶格)。
           for lit in "${U_CSS_LITS[@]}"; do
+            # ⚠️ 第二十批/X 段: U4（发送页「要分享的文本 / 私密备注」压成一行）已被
+            #    **提升为全局规则**（用户在电脑端也要求）⇒ 它不再参与本守卫。
+            #    存在性断言仍保留（它还在 U_CSS_LITS 里），只是不再要求"必须有缩进"。
+            #    规则本体已搬到 X 段（文件末尾 X2），U4 处留了指针注释。
+            #    ⚠️ 这段注释必须在 `case` **之前** —— 放进 case 体里会被
+            #       `.deploycheck/probe-s15-guard.py` 的模式解析当成模式的一部分。
             case "${lit}" in
-              'U 段. 移动端第五轮反馈(第十七批)') continue ;;
+              'U 段. 移动端第五轮反馈(第十七批)'|\
+              'bit-dialog textarea[formcontrolname="text"]') continue ;;
             esac
             if grep -nF -- "${lit}" .vw.css | grep -qE '^[0-9]+:[^[:space:]]'; then
               echo "❌ 第十七批的规则 '${lit}' 存在顶格(全局)写法: 桌面端也会被改掉" >&2
@@ -1019,8 +1031,12 @@ jobs:
           #      W2 会把桌面端那颗本已隐藏的新增按钮撑满并放大字号。
           #      判据沿用第十四~十八批; 段横幅单独排除(它本来就顶格)。
           for lit in "${W_CSS_LITS[@]}"; do
+            # ⚠️ 第二十批/X 段: W1（清掉 textarea 外层的上下内边距）同样被**提升为全局**
+            #    —— 它必须与 U4 同时全局，只改一条的话可见框仍然是 64px。
+            #    存在性断言保留，不再要求缩进。（注释必须在 case 之前，原因同上。）
             case "${lit}" in
-              'W 段. 移动端第七轮反馈(第十九批)') continue ;;
+              'W 段. 移动端第七轮反馈(第十九批)'|\
+              'bit-dialog:has(tools-send-form) bit-form-field div:has(> textarea[bitInput])') continue ;;
             esac
             if grep -nF -- "${lit}" .vw.css | grep -qE '^[0-9]+:[^[:space:]]'; then
               echo "❌ 第十九批的规则 '${lit}' 存在顶格(全局)写法: 桌面端也会被改掉" >&2
@@ -1028,8 +1044,51 @@ jobs:
             fi
           done
 
+          # 28) 第二十批 / X 段: 电脑端一批反馈(用户反馈 5 条, 落地 4 条; 第 5 条只出渲染稿)
+          #     ← apps/web/src/css/vaultwarden.css                          (X1 / X1b / X2 / X4)
+          #       + libs/components/src/select/select.component.ts          (X3 —— 见下)
+          #
+          #     🔴🔴 本批的头号问题是 X3, 而它**在本组里没有 CSS 判据**, 因为它根本不是样式问题:
+          #        电脑端"所有下拉点了没反应 + 右侧多一条滚动条"的根因是
+          #        `onOpen()` → `fitPanelToKeyboard()` 的**桌面早退分支里调了 clearGeometry()`**,
+          #        把 ng-select 刚写好的 `position/top/left/width` 清掉了 ⇒ 面板掉回
+          #        "文档末尾的静态位置"(视口下方一屏、整屏宽), 同时把文档撑高。
+          #        那个 clearGeometry 是**第十三批(Q 段)**加的, 也就是说**活了 6 批**——
+          #        因为第十三~十九批的验收全部只跑 390px 宽, 电脑端从未验过。
+          #        ⇒ 它的判据在**运行期**探针里: `.deploycheck/probe-x20-verify.mjs`
+          #          (默认 1280×860, 跨 4 个页面断"面板贴框 + 宽度贴合 + 文档高度不增长")。
+          #        ⇒ 教训: **改动必须在两个视口宽度上都验收**。
+          #
+          #     .vw.css   'X 段. 电脑端（桌面）一批反馈（第二十批）' —— 段横幅(原样发布, 注释不剥)。
+          #     .vw.css   X1b 的 `body.warden-avatar-on main#main-content app-header bit-avatar svg`
+          #               —— 页头头像跟随本地头像(--warden-avatar), 与账户卡片同口径。
+          #     .vw.css   X2 的 `bit-dialog textarea[formcontrolname="text"]`
+          #               —— 从 U4 提升为全局; 这里再断一次是因为**归属变了**(现在由 X 段负责),
+          #                  而且它已从 U 段的负向守卫里移出, 需要有另一处正向断言兜住。
+          #     .vw.css   X4 的 `...::-webkit-inner-spin-button`
+          #               —— 藏掉「最大访问次数」的原生数字微调箭头(它右侧已有自带的 −/+)。
+          #
+          #     ⚠️ **X1 没有独立的产物字面量**, 这是有意留空、不是漏了:
+          #        `main#main-content app-header header product-switcher` 这个选择器
+          #        在 **R 段**里就已经出现(那条在 @media 内、只关窄屏), 拿它当判据一定是假阳性
+          #        ("没改也能过")。X1 的作用域变化(从窄屏扩到全局)由上面那个运行期探针在
+          #        1280 下断(产品切换器必须不可见)。
+          #
+          #     🔴 本批**故意不写负向守卫**: X1/X1b/X2/X4 四条**全部是"本来就该全局"**的规则
+          #        (X1 桌面端要去掉宫格、X2 桌面端也要一行、X1b 靠 body 上的类收窄、
+          #        X4 收窄到发送表单)。这是第一批"整批都不需要顶格守卫"的改动 ——
+          #        所以下面只做存在性断言, 不要照抄别的批次去加 `case ... continue`。
+          X_CSS_LITS=('X 段. 电脑端（桌面）一批反馈（第二十批）' \
+                      'bit-dialog textarea[formcontrolname="text"]' \
+                      'body.warden-avatar-on main#main-content app-header bit-avatar svg' \
+                      '::-webkit-inner-spin-button')
+          for lit in "${X_CSS_LITS[@]}"; do
+            grep -qF -- "${lit}" .vw.css \
+              || { echo "❌ css/vaultwarden.css 里找不到第二十批的标记 '${lit}'" >&2; fail=1; }
+          done
+
           [ "${fail}" -eq 0 ] || exit 1
-          echo "✅ 二十七项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11 + 第七批 J6/B段 + 第八批 J16/E段 + 第九批 J15 + 第十批/N段 + 第十一批/O段 + 第十二批/P段 + 第十三批/Q段 + 第十四批/R段 + 第十五批/S段 + 第十六批/T段 + 第十七批/U段 + 第十八批/V段 + 第十九批/W段)均已在实际产物中得到验证"
+          echo "✅ 二十八项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11 + 第七批 J6/B段 + 第八批 J16/E段 + 第九批 J15 + 第十批/N段 + 第十一批/O段 + 第十二批/P段 + 第十三批/Q段 + 第十四批/R段 + 第十五批/S段 + 第十六批/T段 + 第十七批/U段 + 第十八批/V段 + 第十九批/W段 + 第二十批/X段)均已在实际产物中得到验证"
 
       - name: Disk space after
         if: always()

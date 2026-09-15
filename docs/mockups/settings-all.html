@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>设置页排版渲染稿 · 全部页面（第二十批 / X 段 ⑤，纯设计稿）</title>
+    <style>
+      :root {
+        --page: #f4f5f7;
+        --card: #ffffff;
+        --card-2: #f7f8fa;
+        --line: #e9ebef;
+        --line-2: #f1f2f5;
+        --fg: #14161a;
+        --fg-2: #4b5563;
+        --fg-3: #8b93a1;
+        --brand: #175ddc;
+        --brand-weak: #eef3ff;
+        --danger: #b3261e;
+        --ok: #1f7a3f;
+        --ok-weak: #eaf6ee;
+        --radius: 12px;
+        --shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+        --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+      }
+      html[data-theme="dark"] {
+        --page: #0f1216; --card: #171b21; --card-2: #1d222a;
+        --line: #262c35; --line-2: #202630;
+        --fg: #e8eaee; --fg-2: #aab3c0; --fg-3: #7b8595;
+        --brand: #6f9bff; --brand-weak: #1b2740;
+        --danger: #f2867c; --ok: #63c58a; --ok-weak: #16281d;
+        --shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--page); color: var(--fg);
+        font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      /* ---------- 稿子工具条 ---------- */
+      .bar {
+        position: sticky; top: 0; z-index: 50;
+        display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+        padding: 10px 16px; background: var(--card); border-bottom: 1px solid var(--line);
+      }
+      .bar .tabs { display: flex; gap: 4px; background: var(--card-2); padding: 3px; border-radius: 10px; border: 1px solid var(--line); }
+      .bar .tabs button {
+        font: inherit; font-size: 12.5px; padding: 6px 12px; cursor: pointer;
+        background: transparent; color: var(--fg-3); border: 0; border-radius: 7px;
+      }
+      .bar .tabs button[aria-pressed="true"] { background: var(--card); color: var(--fg); box-shadow: var(--shadow); }
+      .bar .sp { margin-left: auto; display: flex; gap: 8px; }
+      .bar .sp button {
+        font: inherit; font-size: 12.5px; padding: 6px 12px; cursor: pointer;
+        background: var(--card-2); color: var(--fg-2); border: 1px solid var(--line); border-radius: 8px;
+      }
+      .bar .sp button[aria-pressed="true"] { background: var(--brand-weak); color: var(--brand); }
+
+      /* ---------- 画布 ---------- */
+      .stage { display: flex; justify-content: center; padding: 22px 16px 64px; }
+      .frame {
+        width: 1120px; max-width: 100%; background: var(--page);
+        border: 1px solid var(--line); border-radius: 14px; padding: 28px 32px 40px;
+        transition: width 0.18s ease;
+      }
+      .frame.narrow { width: 390px; padding: 18px 16px 32px; }
+
+      .ptitle { margin: 0 0 18px; }
+      .ptitle h2 { margin: 0; font-size: 19px; font-weight: 650; letter-spacing: -0.01em; }
+      .ptitle p { margin: 5px 0 0; font-size: 13px; color: var(--fg-3); }
+
+      /* ---------- 卡片 ---------- */
+      .card {
+        background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+        box-shadow: var(--shadow); margin: 0 0 16px; overflow: hidden;
+      }
+      .card > header { padding: 16px 20px 12px; }
+      .card > header h3 { margin: 0; font-size: 14.5px; font-weight: 620; }
+      .card > header p { margin: 4px 0 0; font-size: 12.5px; color: var(--fg-3); }
+      .card > header + .rows { border-top: 1px solid var(--line-2); }
+      .card.danger > header h3 { color: var(--danger); }
+
+      /* ---------- 行 ---------- */
+      .rows { padding: 0 20px; }
+      .row { display: grid; grid-template-columns: 168px minmax(0, 1fr); align-items: center; gap: 16px; min-height: 56px; padding: 9px 0; }
+      .row + .row { border-top: 1px solid var(--line-2); }
+      .row > .k { font-size: 13px; color: var(--fg-3); }
+      .row > .v { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
+      .row.tall { align-items: start; padding: 14px 0; }
+      .row.tall > .k { padding-top: 8px; }
+      .frame.narrow .rows { padding: 0 16px; }
+      .frame.narrow .row { grid-template-columns: 1fr; gap: 6px; padding: 12px 0; align-items: start; }
+      .frame.narrow .row.tall > .k { padding-top: 0; }
+      .frame.narrow .row > .k { font-size: 12.5px; }
+
+      .value-text { font-size: 13.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .value-text.mono { font-family: var(--mono); font-size: 13px; }
+      .value-text.dots { letter-spacing: 0.16em; }
+      .muted { color: var(--fg-3); font-size: 12.5px; }
+
+      /* ---------- 控件 ---------- */
+      input[type="text"], input[type="password"], input[type="email"] {
+        font: inherit; font-size: 13.5px; color: var(--fg); background: var(--card);
+        width: 100%; height: 38px; padding: 0 12px; border: 1px solid var(--line); border-radius: 9px; outline: none;
+      }
+      input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 14%, transparent); }
+      .with-btn { display: flex; gap: 8px; align-items: center; width: 100%; }
+      .iconbtn {
+        flex: 0 0 auto; width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center;
+        background: var(--card-2); border: 1px solid var(--line); border-radius: 9px; color: var(--fg-3); cursor: pointer;
+      }
+      .iconbtn:hover { color: var(--fg); }
+      .btn {
+        font: inherit; font-size: 13px; font-weight: 550; height: 36px; padding: 0 16px;
+        border-radius: 9px; border: 1px solid var(--line); background: var(--card-2); color: var(--fg); cursor: pointer;
+      }
+      .btn.primary { background: var(--brand); border-color: var(--brand); color: #fff; }
+      .btn.ghost { background: transparent; }
+      .btn.danger { background: transparent; border-color: color-mix(in srgb, var(--danger) 40%, var(--line)); color: var(--danger); }
+      .btn.sm { height: 30px; padding: 0 12px; font-size: 12.5px; border-radius: 8px; }
+      .link { color: var(--brand); font-size: 13px; cursor: pointer; }
+      .link:hover { text-decoration: underline; }
+      .foot { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 20px; border-top: 1px solid var(--line-2); background: color-mix(in srgb, var(--card-2) 55%, var(--card)); }
+      .frame.narrow .foot { padding: 14px 16px; }
+      .frame.narrow .foot .btn { flex: 1 1 0; }
+
+      /* ---------- 徽章 / 图标块 / chips ---------- */
+      .badge { font-size: 11.5px; line-height: 20px; padding: 0 8px; border-radius: 999px; white-space: nowrap; border: 1px solid transparent; }
+      .badge.on { color: var(--ok); background: var(--ok-weak); border-color: color-mix(in srgb, var(--ok) 25%, transparent); }
+      .badge.off { color: var(--fg-3); background: var(--card-2); border-color: var(--line); }
+      .sq {
+        flex: 0 0 auto; width: 34px; height: 34px; border-radius: 9px; display: flex; align-items: center; justify-content: center;
+        background: var(--card-2); border: 1px solid var(--line-2); font-size: 15px;
+      }
+      .chip { font-size: 12px; font-family: var(--mono); padding: 3px 8px; border-radius: 7px; background: var(--card-2); border: 1px solid var(--line-2); color: var(--fg-2); }
+      .grow { flex: 1 1 auto; min-width: 0; }
+      .name { font-size: 13.5px; font-weight: 550; }
+      .desc { font-size: 12.5px; color: var(--fg-3); margin-top: 1px; }
+
+      /* ---------- 身份卡 ---------- */
+      .idcard { display: flex; align-items: center; gap: 16px; padding: 20px; }
+      .avatar {
+        flex: 0 0 auto; width: 58px; height: 58px; border-radius: 50%;
+        background: linear-gradient(135deg, #0f7b7b, #175ddc);
+        display: flex; align-items: center; justify-content: center; color: #fff; font-size: 20px; font-weight: 600;
+      }
+      .idcard .who { min-width: 0; flex: 1 1 auto; }
+      .idcard .who .n { font-size: 17px; font-weight: 620; }
+      .idcard .who .m { font-size: 13px; color: var(--fg-3); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .idcard .acts { display: flex; gap: 8px; flex: 0 0 auto; }
+      .frame.narrow .idcard { flex-wrap: wrap; }
+      .frame.narrow .idcard .acts { flex: 1 1 100%; }
+      .frame.narrow .idcard .acts .btn { flex: 1 1 0; }
+
+      .meter { height: 6px; border-radius: 999px; background: var(--line); overflow: hidden; width: 100%; }
+      .meter > i { display: block; height: 100%; background: var(--ok); border-radius: 999px; }
+      .meter-row { display: flex; align-items: center; gap: 12px; width: 100%; }
+      .tag { font-size: 12px; color: var(--ok); white-space: nowrap; }
+      .note { background: var(--card-2); border: 1px solid var(--line-2); border-radius: 9px; padding: 10px 12px; font-size: 13px; color: var(--fg-2); width: 100%; }
+
+      /* ---------- 主题选择卡 ---------- */
+      .picks { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; width: 100%; }
+      .frame.narrow .picks { grid-template-columns: 1fr; }
+      .pick {
+        border: 1px solid var(--line); border-radius: 11px; padding: 12px; cursor: pointer;
+        background: var(--card); display: flex; flex-direction: column; gap: 9px;
+      }
+      .pick[data-on="1"] { border-color: var(--brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 14%, transparent); }
+      .pick .pv { height: 46px; border-radius: 7px; border: 1px solid var(--line-2); overflow: hidden; display: flex; }
+      .pick .pv i { flex: 1 1 auto; }
+      .pick .lb { display: flex; align-items: center; justify-content: space-between; font-size: 13px; }
+      .pick .lb b { font-weight: 560; }
+      .pick .lb span { color: var(--brand); font-size: 12px; }
+      .pv.light { background: #fff; } .pv.light i { background: #eef1f6; }
+      .pv.system { background: linear-gradient(90deg, #fff 50%, #14161a 50%); } .pv.system i { background: linear-gradient(90deg, #eef1f6 50%, #262c35 50%); }
+      .pv.dark { background: #14161a; } .pv.dark i { background: #262c35; }
+
+      /* ---------- 开关 ---------- */
+      .sw { width: 40px; height: 23px; border-radius: 999px; background: var(--line); position: relative; flex: 0 0 auto; cursor: pointer; }
+      .sw[data-on="1"] { background: var(--brand); }
+      .sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 19px; height: 19px; border-radius: 50%; background: #fff; transition: 0.15s; }
+      .sw[data-on="1"]::after { left: 19px; }
+
+      /* ---------- 危险行 ---------- */
+      .drow { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px; min-height: 58px; padding: 10px 0; }
+      .drow + .drow { border-top: 1px solid var(--line-2); }
+      .frame.narrow .drow { grid-template-columns: 1fr; }
+      .frame.narrow .drow .btn { width: 100%; }
+
+      /* ---------- 元信息 ---------- */
+      .meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 16px 20px; }
+      .meta .cell .k { font-size: 12px; color: var(--fg-3); }
+      .meta .cell .v { font-size: 13px; margin-top: 2px; font-family: var(--mono); }
+      .frame.narrow .meta { grid-template-columns: 1fr; gap: 10px; }
+
+      /* ---------- 标注 ---------- */
+      .callout { display: none; position: relative; margin: 10px 0 0 20px; padding: 7px 11px; font-size: 12px; color: var(--brand); background: var(--brand-weak); border-left: 2px solid var(--brand); border-radius: 0 7px 7px 0; }
+      body[data-notes="on"] .callout { display: block; }
+      .frame.narrow .callout { margin-left: 16px; }
+      .page { display: none; }
+      .page[data-on="1"] { display: block; }
+    </style>
+  </head>
+  <body data-notes="on" data-theme="light">
+    <div class="bar">
+      <div class="tabs" id="tabs">
+        <button data-p="account" aria-pressed="true">我的账户</button>
+        <button data-p="security" aria-pressed="false">安全</button>
+        <button data-p="appearance" aria-pressed="false">外观</button>
+        <button data-p="domain" aria-pressed="false">域名规则</button>
+      </div>
+      <div class="sp">
+        <button id="t" aria-pressed="false">暗色</button>
+        <button id="w" aria-pressed="false">移动端 390</button>
+        <button id="n" aria-pressed="true">标注</button>
+      </div>
+    </div>
+
+    <div class="stage">
+      <div class="frame" id="frame">
+        <!-- ================= 我的账户 ================= -->
+        <section class="page" data-page="account" data-on="1">
+          <div class="ptitle"><h2>我的账户</h2><p>账户资料、主密码与安全设置</p></div>
+
+          <section class="card">
+            <div class="idcard">
+              <div class="avatar">示</div>
+              <div class="who"><div class="n">示例用户</div><div class="m">demo@example.com</div></div>
+              <div class="acts"><button class="btn ghost sm">锁定</button><button class="btn ghost sm">注销</button></div>
+            </div>
+          </section>
+          <div class="callout">头像与昵称合成一张身份卡（左图右名 + 右侧两个弱化操作），替代原来"头像/名称/邮箱/锁定注销"四样挤在一行浅灰底上。</div>
+
+          <section class="card">
+            <header><h3>个人信息</h3><p>修改后需点「保存」才会生效</p></header>
+            <div class="rows">
+              <div class="row"><div class="k">名称</div><div class="v"><input type="text" value="示例用户" /></div></div>
+              <div class="row">
+                <div class="k">电子邮箱</div>
+                <div class="v"><span class="value-text grow">demo@example.com</span><span class="link">更改</span></div>
+              </div>
+              <div class="row">
+                <div class="k">指纹短语</div>
+                <div class="v">
+                  <span class="value-text mono grow">acuteness-suave-unmoral-banner-yearly</span>
+                  <button class="iconbtn" title="复制">⧉</button>
+                </div>
+              </div>
+            </div>
+            <div class="callout">指纹短语从"浮在名称输入框右上角"改成同卡片里的一行，并换等宽字体 + 复制按钮 —— 它本来是给人肉眼核对/抄写的。</div>
+            <div class="foot"><button class="btn primary">保存</button></div>
+          </section>
+
+          <section class="card">
+            <header><h3>更改电子邮箱</h3><p>需要先验证当前主密码</p></header>
+            <div class="rows">
+              <div class="row">
+                <div class="k">主密码</div>
+                <div class="v"><div class="with-btn"><input type="password" value="password" /><button class="iconbtn" title="显示">◉</button></div></div>
+              </div>
+              <div class="row"><div class="k">新电子邮箱</div><div class="v"><input type="email" placeholder="name@example.com" /></div></div>
+            </div>
+            <div class="foot"><button class="btn primary">继续</button></div>
+          </section>
+
+          <section class="card danger">
+            <header><h3>危险操作</h3><p>以下操作不可撤销，请谨慎执行</p></header>
+            <div class="rows">
+              <div class="drow"><div><div class="name">取消会话授权</div><div class="desc">吊销所有已登录设备，需要重新登录</div></div><button class="btn danger">取消授权</button></div>
+              <div class="drow"><div><div class="name">清空密码库</div><div class="desc">删除全部条目，账户与设置保留</div></div><button class="btn danger">清空密码库</button></div>
+              <div class="drow"><div><div class="name">删除账户</div><div class="desc">永久删除账户及全部数据，无法恢复</div></div><button class="btn danger">删除账户</button></div>
+            </div>
+            <div class="callout">丢掉"红色大边框盒子"：改为与其它卡片同构的白卡，只把标题染红；每个危险操作补一句后果说明。</div>
+          </section>
+
+          <section class="card">
+            <header><h3>账户信息</h3></header>
+            <div class="meta">
+              <div class="cell"><div class="k">创建时间</div><div class="v">2026-05-11</div></div>
+              <div class="cell"><div class="k">最近修改</div><div class="v">2026-09-02</div></div>
+              <div class="cell"><div class="k">账户 ID</div><div class="v">a1b2c3d4</div></div>
+            </div>
+          </section>
+        </section>
+
+        <!-- ================= 安全 ================= -->
+        <section class="page" data-page="security" data-on="0">
+          <div class="ptitle"><h2>安全</h2><p>主密码、两步登录与会话</p></div>
+
+          <section class="card">
+            <header><h3>主密码</h3><p>修改主密码前，请确认已备份恢复码</p></header>
+            <div class="rows">
+              <div class="row">
+                <div class="k">当前主密码</div>
+                <div class="v"><div class="with-btn"><input type="password" value="password" /><button class="iconbtn" title="显示">◉</button></div></div>
+              </div>
+              <div class="row">
+                <div class="k">新主密码</div>
+                <div class="v"><div class="with-btn"><input type="password" value="password" /><button class="iconbtn" title="显示">◉</button></div></div>
+              </div>
+              <div class="row">
+                <div class="k">确认新主密码</div>
+                <div class="v"><div class="with-btn"><input type="password" value="password" /><button class="iconbtn" title="显示">◉</button></div></div>
+              </div>
+              <div class="row">
+                <div class="k">强度</div>
+                <div class="v"><div class="meter-row"><div class="meter"><i style="width: 100%"></i></div><span class="tag">很强 · 100%</span></div></div>
+              </div>
+            </div>
+            <div class="callout">强度条从"浮在右上角的小字"改成自己占一行（左标签 / 右条 + 百分比），和上面的密码框对齐成一列。</div>
+            <div class="foot"><button class="btn primary">保存</button></div>
+          </section>
+
+          <section class="card">
+            <header><h3>两步登录</h3><p>为账户增加一层额外保护</p></header>
+            <div class="rows">
+              <div class="row tall">
+                <div class="k">验证器应用</div>
+                <div class="v">
+                  <span class="sq">⏱</span>
+                  <span class="grow"><span class="name">TOTP 验证器</span><span class="desc">用 Authy、1Password 等应用生成验证码</span></span>
+                  <span class="badge on">已开启</span>
+                  <button class="btn sm">管理</button>
+                </div>
+              </div>
+              <div class="row tall">
+                <div class="k">电子邮件</div>
+                <div class="v">
+                  <span class="sq">✉</span>
+                  <span class="grow"><span class="name">电子邮件验证码</span><span class="desc">登录时向 demo@example.com 发送验证码</span></span>
+                  <span class="badge off">未开启</span>
+                  <button class="btn sm">设置</button>
+                </div>
+              </div>
+              <div class="row tall">
+                <div class="k">安全密钥</div>
+                <div class="v">
+                  <span class="sq">🔑</span>
+                  <span class="grow"><span class="name">YubiKey / FIDO2</span><span class="desc">使用硬件密钥完成两步登录</span></span>
+                  <span class="badge off">未开启</span>
+                  <button class="btn sm">设置</button>
+                </div>
+              </div>
+              <div class="row tall">
+                <div class="k">其他方式</div>
+                <div class="v">
+                  <span class="sq">＋</span>
+                  <span class="grow"><span class="name">Duo、WebAuthn 等</span><span class="desc">查看全部可用的两步登录方式</span></span>
+                  <button class="btn sm ghost">查看</button>
+                </div>
+              </div>
+            </div>
+            <div class="callout">每个提供方一行：图标 + 名称/说明 + 状态徽章 + 操作。原来是一大块带边框的方块堆叠，状态与入口不在一眼能扫到的位置。</div>
+          </section>
+
+          <section class="card">
+            <header><h3>会话与访问</h3></header>
+            <div class="rows">
+              <div class="row"><div class="k">会话超时</div><div class="v"><span class="value-text grow">30 分钟</span><span class="link">更改</span></div></div>
+              <div class="row">
+                <div class="k">两步登录</div>
+                <div class="v"><span class="value-text grow">登录时要求验证码</span><span class="sw" data-on="1"></span></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="card danger">
+            <header><h3>危险操作</h3><p>以下操作不可撤销</p></header>
+            <div class="rows">
+              <div class="drow"><div><div class="name">注销所有会话</div><div class="desc">除当前设备外，其余设备全部退出登录</div></div><button class="btn danger">注销</button></div>
+              <div class="drow"><div><div class="name">重置两步登录</div><div class="desc">清除全部已配置的两步登录方式</div></div><button class="btn danger">重置</button></div>
+            </div>
+          </section>
+        </section>
+
+        <!-- ================= 外观 ================= -->
+        <section class="page" data-page="appearance" data-on="0">
+          <div class="ptitle"><h2>外观</h2><p>主题与语言</p></div>
+
+          <section class="card">
+            <header><h3>主题</h3><p>立即生效，保存在本设备</p></header>
+            <div class="rows">
+              <div class="row tall">
+                <div class="k">颜色主题</div>
+                <div class="v">
+                  <div class="picks">
+                    <div class="pick" data-on="0"><div class="pv system"><i></i></div><div class="lb"><b>跟随系统</b></div></div>
+                    <div class="pick" data-on="1"><div class="pv light"><i></i></div><div class="lb"><b>浅色</b><span>当前</span></div></div>
+                    <div class="pick" data-on="0"><div class="pv dark"><i></i></div><div class="lb"><b>深色</b></div></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="callout">主题从"一行下拉框"改成三张可视化预览卡：选之前就能看到效果，也省掉一次"点开-选中-关闭"。</div>
+          </section>
+
+          <section class="card">
+            <header><h3>语言与区域</h3></header>
+            <div class="rows">
+              <div class="row"><div class="k">界面语言</div><div class="v"><span class="value-text grow">简体中文</span><span class="link">更改</span></div></div>
+              <div class="row"><div class="k">区域格式</div><div class="v"><span class="value-text grow">自动（跟随语言）</span><span class="link">更改</span></div></div>
+            </div>
+          </section>
+
+          <section class="card">
+            <header><h3>无障碍</h3></header>
+            <div class="rows">
+              <div class="row">
+                <div class="k">减少动态效果</div>
+                <div class="v"><div class="grow"><div class="name">关闭过渡与动画</div><div class="desc">对晕动症用户更友好</div></div><span class="sw" data-on="0"></span></div>
+              </div>
+              <div class="row">
+                <div class="k">更宽的点击区</div>
+                <div class="v"><div class="grow"><div class="name">放大可点击元素</div><div class="desc">移动端更易点中</div></div><span class="sw" data-on="1"></span></div>
+              </div>
+            </div>
+            <div class="callout">开关行统一为"左标题/说明 + 右侧开关"，与安全页同构，不再各处一种写法。</div>
+          </section>
+        </section>
+
+        <!-- ================= 域名规则 ================= -->
+        <section class="page" data-page="domain" data-on="0">
+          <div class="ptitle"><h2>域名规则</h2><p>控制哪些网站共用同一条登录凭据</p></div>
+
+          <section class="card">
+            <header><h3>等价域名</h3><p>同一组内的域名会互相匹配到同一批登录信息</p></header>
+            <div class="rows">
+              <div class="row tall">
+                <div class="k">google.com</div>
+                <div class="v">
+                  <span class="chip">youtube.com</span><span class="chip">gmail.com</span><span class="chip">google.co.uk</span>
+                  <button class="btn sm ghost">编辑</button>
+                </div>
+              </div>
+              <div class="row tall">
+                <div class="k">apple.com</div>
+                <div class="v">
+                  <span class="chip">icloud.com</span><span class="chip">me.com</span>
+                  <button class="btn sm ghost">编辑</button>
+                </div>
+              </div>
+              <div class="row tall">
+                <div class="k">qq.com</div>
+                <div class="v">
+                  <span class="chip">v.qq.com</span><span class="chip">mail.qq.com</span>
+                  <button class="btn sm ghost">编辑</button>
+                </div>
+              </div>
+            </div>
+            <div class="callout">等价域名用 chip 展示（一眼看清一组里有几个），编辑入口收到行尾 —— 原来是一行长文本，域名一多就折行成一团。</div>
+          </section>
+
+          <section class="card">
+            <header><h3>新增规则</h3></header>
+            <div class="rows">
+              <div class="row">
+                <div class="k">域名</div>
+                <div class="v"><input type="text" placeholder="example.com" /></div>
+              </div>
+              <div class="row">
+                <div class="k">等价域名</div>
+                <div class="v"><input type="text" placeholder="与其共用凭据的域名，逗号分隔" /></div>
+              </div>
+            </div>
+            <div class="foot"><button class="btn">取消</button><button class="btn primary">添加</button></div>
+          </section>
+
+          <section class="card">
+            <header><h3>全局等价域名</h3><p>由服务端内置，不可修改</p></header>
+            <div class="rows">
+              <div class="row"><div class="k">yandex.com</div><div class="v"><span class="muted">yandex.ru、yandex.com.tr</span></div></div>
+              <div class="row"><div class="k">amazon.com</div><div class="v"><span class="muted">amazon.co.uk、amazon.de、amazon.co.jp</span></div></div>
+            </div>
+          </section>
+        </section>
+      </div>
+    </div>
+
+    <script>
+      const frame = document.getElementById("frame");
+      document.getElementById("tabs").addEventListener("click", (e) => {
+        const b = e.target.closest("button[data-p]");
+        if (!b) return;
+        [...document.querySelectorAll("#tabs button")].forEach((x) =>
+          x.setAttribute("aria-pressed", String(x === b)),
+        );
+        document.querySelectorAll(".page").forEach((p) =>
+          p.setAttribute("data-on", String(p.dataset.page === b.dataset.p)),
+        );
+      });
+      const btn = (id, fn) => {
+        const el = document.getElementById(id);
+        el.addEventListener("click", () => {
+          const on = el.getAttribute("aria-pressed") !== "true";
+          el.setAttribute("aria-pressed", String(on));
+          fn(on);
+        });
+      };
+      btn("t", (on) => (document.documentElement.dataset.theme = on ? "dark" : "light"));
+      btn("w", (on) => frame.classList.toggle("narrow", on));
+      btn("n", (on) => (document.body.dataset.notes = on ? "on" : "off"));
+    </script>
+  </body>
+</html>
