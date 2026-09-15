@@ -15,9 +15,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "产物标签 / artifact 名 (如 v2026.8.10)。会与源码里的版本核对, 不一致直接失败"
+        description: "产物标签 / artifact 名 (如 v2026.8.11)。会与源码里的版本核对, 不一致直接失败"
         required: true
-        default: "v2026.8.10"
+        default: "v2026.8.11"
 
 env:
   # 我们的前端源码 fork。定制已直接落在源码里(见 fork 的 shypwd 分支)。
@@ -1087,8 +1087,40 @@ jobs:
               || { echo "❌ css/vaultwarden.css 里找不到第二十批的标记 '${lit}'" >&2; fail=1; }
           done
 
+          # 29) 第二十一批 / Y 段: 下拉"打开之后必须能关掉"(用户验收第二十批后报的 1 条)
+          #     ← libs/components/src/select/select.component.ts     (Y1)
+          #
+          #     🔴 本批**只有 .ts**, 没有一行 CSS ⇒ 本组没有 .vw.css 判据, 这是正常的。
+          #
+          #     现象: 下拉"点开后关不掉"。实测四条关闭路径里**只有一条**真的坏:
+          #       · 点箭头       → 原生 `handleArrowClick()` 开↔关        —— 一直是好的
+          #       · 点页面空白   → `outsideClickEvent="mousedown"` 捕获监听 —— 一直是好的
+          #       · 点对话框遮罩 → 同上                                   —— 一直是好的
+          #       · 再点控件本体 → 🔴 坏的
+          #     根因: ng-select 的 `handleMousedown()` 是
+          #       `if (searchable()) { open() } else { toggle() }`, 而宽屏我们把 `searchable`
+          #       留成 true(长列表要输入过滤) ⇒ 永远只 `open()`, 对已开的面板是 no-op。
+          #     修法: 宽屏**只补"关"的那一半** —— `pointerdown` 记下"按下时是否已开着",
+          #       `pointerup` 里若"按下时已开着"就 `setTimeout(0)` 再 `close()`
+          #       (等原生 mousedown/click 跑完; 它们只会做 no-op 的 open())。
+          #       ⚠️ 两条边界: ①只在"按下时已开着"才关, 否则"点一下打开"会被立刻关掉
+          #       (表现为完全打不开); ②宽屏**不能** `preventDefault()`, 否则输入框落不了光标、
+          #       选不了文本 —— 那正是 T 段把这段代码限定在窄屏的原因, 所以这里要"接但不动"。
+          #
+          #     .main.js  'pressStartedWhileOpen' —— 本批新增的那个"按下时是否已开着"的字段
+          #               (**类属性名不参与 terser 混淆**, 可靠)。
+          #               ⚠️ 刻意**不**断 `pressStartedOnField`: 那是第十七批(U 段)就有的字段,
+          #                  上一版产物里也在 ⇒ 拿它当判据是假阳性("没修也能过")。
+          #
+          #     运行期验收: `.deploycheck/probe-y21-verify.mjs`(四条关闭路径 × 两个视口)。
+          Y_MAIN_LITS=('pressStartedWhileOpen')
+          for lit in "${Y_MAIN_LITS[@]}"; do
+            grep -qF -- "${lit}" .main.js \
+              || { echo "❌ 产物 main.js 里找不到第二十一批的标记 '${lit}'" >&2; fail=1; }
+          done
+
           [ "${fail}" -eq 0 ] || exit 1
-          echo "✅ 二十八项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11 + 第七批 J6/B段 + 第八批 J16/E段 + 第九批 J15 + 第十批/N段 + 第十一批/O段 + 第十二批/P段 + 第十三批/Q段 + 第十四批/R段 + 第十五批/S段 + 第十六批/T段 + 第十七批/U段 + 第十八批/V段 + 第十九批/W段 + 第二十批/X段)均已在实际产物中得到验证"
+          echo "✅ 二十九项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11 + 第七批 J6/B段 + 第八批 J16/E段 + 第九批 J15 + 第十批/N段 + 第十一批/O段 + 第十二批/P段 + 第十三批/Q段 + 第十四批/R段 + 第十五批/S段 + 第十六批/T段 + 第十七批/U段 + 第十八批/V段 + 第十九批/W段 + 第二十批/X段 + 第二十一批/Y段)均已在实际产物中得到验证"
 
       - name: Disk space after
         if: always()
