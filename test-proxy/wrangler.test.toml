@@ -1,0 +1,34 @@
+# shytest.cc.cd 的**测试用** Worker 配置（临时通道，非生产）
+#
+# 生产配置是仓库根的 wrangler.toml（真 Worker + D1 + KV + DO + 限流）。
+# 这份只做"把新前端挂到一个临时域名上给你看"：
+#   · 静态资源来自 test-proxy/dist —— 那是 `apps/web/build` **剔除 *.map** 后的副本。
+#     为什么不直接用 build 目录：`981.*.js.map` 有 **51.7 MiB**, 超过 Cloudflare
+#     Workers 对单个静态资源 25 MiB 的上限, 直接 deploy 会报 "Asset too large" 而中止。
+#     部署只需要 JS/CSS/HTML, source map 对测试毫无用处。
+#     (打包命令:
+#        mkdir -p test-proxy/dist && tar -cf - --exclude='*.map' -C ../vw_web_builds/apps/web/build . #          | tar -xf - -C test-proxy/dist )
+#   · 后端请求由 worker.js 反向代理到线上 shypwd.cc.cd（不复制 D1、不复制密钥）
+#
+# 用法（在 warden-worker 目录下）：
+#   CLOUDFLARE_EMAIL=... CLOUDFLARE_API_KEY=... \
+#     npx wrangler deploy --config test-proxy/wrangler.test.toml
+#
+# 部署完要在 Cloudflare 侧配两样东西（用 API 配，见 .deploycheck/）：
+#   ① DNS: A 记录 shytest.cc.cd → 192.0.2.1（假源站, proxied）
+#   ② Workers 路由: shytest.cc.cd/* → warden-worker-test
+
+name = "warden-worker-test"
+main = "worker.js"
+compatibility_date = "2025-09-19"
+
+# 只对后端路径走 Worker，其余交给静态资源（与生产的 run_worker_first 同口径）
+[assets]
+directory = "./dist"
+not_found_handling = "404-page"
+html_handling = "auto-trailing-slash"
+run_worker_first = ["/api/*", "/identity/*", "/notifications/*"]
+
+[vars]
+# 只为在页面上能看出这是测试环境；worker.js 目前不读它
+WARDEN_TEST_CHANNEL = "shytest"

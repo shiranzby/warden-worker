@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>卡片规范统一 · 前后对比与补丁（Shypwd 设计系统）</title>
+    <style>
+      /* ============ 设计系统的 token（原样照抄 app.css） ============ */
+      :root {
+        --bg: #ffffff; --surface: #f5f5f7; --surface-warm: #fbfbfd;
+        --fg: #1d1d1f; --fg-2: #424245; --muted: #6e6e73; --meta: #86868b;
+        --border: #d2d2d7; --border-soft: #e8e8ed;
+        --accent: #0071e3; --accent-soft: color-mix(in oklab, #0071e3 12%, transparent);
+        --danger: #dc2626;
+        --font-body: "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI",
+          "PingFang SC", "Microsoft YaHei", sans-serif;
+        --space-2: 8px; --space-5: 20px;
+        --radius-sm: 8px; --radius-md: 12px; --radius-lg: 18px;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: #f4f5f7; color: var(--fg);
+        font: 14px/1.5 var(--font-body);
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 1180px; margin: 0 auto; padding: 28px 24px 72px; }
+      h1 { font-size: 22px; font-weight: 650; letter-spacing: -0.01em; margin: 0 0 6px; }
+      .sub { color: var(--muted); font-size: 13px; margin: 0 0 22px; }
+      h2 { font-size: 15px; font-weight: 620; margin: 34px 0 12px; }
+      .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+      @media (max-width: 880px) { .cols { grid-template-columns: 1fr; } }
+      .board {
+        background: #eef0f3; border: 1px solid #d9dce1; border-radius: 14px; padding: 16px;
+      }
+      .board > .tag {
+        font-size: 12px; font-weight: 600; letter-spacing: 0.02em; margin: 0 0 12px;
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 3px 9px; border-radius: 999px;
+      }
+      .board.bad .tag { background: #fdecec; color: #b3261e; }
+      .board.good .tag { background: #e7f6ec; color: #1f7a3f; }
+
+      /* ============ 修正前：原样复刻 app.css 的现有取值 ============ */
+      .b-card      { border: 1px solid var(--border); border-radius: 18px; background: var(--bg); padding: 20px; }
+      .b-report    { border: 1px solid var(--border); border-radius: 18px; background: var(--bg); padding: 18px; }
+      .b-stat      { border: 1px solid var(--border); border-radius: 12px; background: var(--surface-warm); padding: 14px 16px; }
+      .b-notes     { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); padding: 14px 16px; }
+      .b-opt       { border: 1px solid var(--border); border-radius: 12px; background: var(--bg); padding: 12px 14px; }
+      .b-gen       { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); padding: 12px; }
+      .b-drop      { border: 1px dashed var(--border); border-radius: 12px; background: var(--surface-warm); padding: 26px 18px; text-align: center; }
+      .b-banner    { background: var(--accent-soft); border-radius: 8px; padding: 6px 8px 6px 10px; font-size: 12px; }
+
+      /* ============ 修正后：统一为两档 ============ */
+      /* A 档 · 主卡片（.card / .report-card / .panel / .login-card） */
+      .g-tierA { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg); padding: var(--space-5); }
+      /* B 档 · 内嵌块（.notes / .stat / .gen-out / .opt-card） */
+      .g-tierB { border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); padding: 14px 16px; }
+      /* B 档大块变体 · 仅 .dropzone（虚线边框是语义，保留） */
+      .g-drop   { border: 1px dashed var(--border); border-radius: var(--radius-md); background: var(--surface); padding: 22px 18px; text-align: center; }
+      /* 行内提示条 · 明确不属于卡片 */
+      .g-banner { background: var(--accent-soft); border-radius: var(--radius-sm); padding: 8px 12px; font-size: 12px; }
+
+      .stack { display: grid; gap: 12px; }
+      .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+      .label { font-size: 12px; color: var(--meta); font-family: ui-monospace, Menlo, Consolas, monospace; }
+      .big { font-size: 21px; font-weight: 640; letter-spacing: -0.01em; }
+
+      table { width: 100%; border-collapse: collapse; font-size: 13px; background: #fff; border: 1px solid #d9dce1; border-radius: 12px; overflow: hidden; }
+      th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid #eceef1; }
+      th { background: #f7f8fa; font-weight: 600; font-size: 12.5px; color: var(--fg-2); }
+      tr:last-child td { border-bottom: 0; }
+      code, pre { font-family: ui-monospace, Menlo, Consolas, monospace; }
+      code { background: #f1f2f5; padding: 1px 5px; border-radius: 5px; font-size: 12.5px; }
+      pre {
+        background: #1d1d1f; color: #f5f5f7; padding: 16px; border-radius: 12px;
+        overflow: auto; font-size: 12.5px; line-height: 1.6;
+      }
+      pre .c { color: #86868b; }
+      pre .k { color: #6f9bff; }
+      .bad { color: #b3261e; }
+      .good { color: #1f7a3f; }
+      .note { font-size: 12.5px; color: var(--muted); margin: 8px 0 0; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>卡片规范统一 · 前后对比</h1>
+      <p class="sub">
+        对象：Open Design 交付的设计系统 <code>pages/_shared/app.css</code>。
+        问题不是"审美"，而是<strong>同一层级的容器用了不同的内边距与圆角</strong>，并排时肉眼可见不齐。
+        下面是逐项对照与可直接并入 <code>app.css</code> 的补丁。
+      </p>
+
+      <h2>① 现在的问题：8 个"像卡片"的类，是 3 套内边距 × 3 种圆角</h2>
+      <div class="cols">
+        <div class="board bad">
+          <span class="tag">✕ 修正前（现状）</span>
+          <div class="stack">
+            <div class="b-card">
+              <div class="row"><span class="big">主卡片 .card</span><span class="label">20px / r18 / #fff</span></div>
+            </div>
+            <div class="b-report">
+              <div class="row"><span class="big">报告卡 .report-card</span><span class="label bad">18px / r18 / #fff</span></div>
+            </div>
+            <div class="b-stat">
+              <div class="row"><span class="label">统计块 .stat</span><span class="label bad">14/16px / r12 / warm</span></div>
+            </div>
+            <div class="b-notes">
+              <div class="label">备注块 .notes &nbsp;→ 14/16px / r12 / surface</div>
+            </div>
+            <div class="b-opt">
+              <div class="label">选项卡 .opt-card → <span class="bad">12/14px / r12 / #fff</span></div>
+            </div>
+            <div class="b-gen">
+              <div class="label">生成结果 .gen-out → <span class="bad">12px / r12 / surface</span></div>
+            </div>
+            <div class="b-drop">
+              <div class="label">拖放区 .dropzone → <span class="bad">26/18px / r12</span></div>
+            </div>
+            <div class="b-banner">
+              提示条 .banner → <span class="bad">6/8/10px / r8</span>（还是第三档圆角）
+            </div>
+          </div>
+          <p class="note">
+            最刺眼的是 <code>.card</code>(20px) 与 <code>.report-card</code>(18px) ——
+            两个都是**顶层主卡片**，并排时上下留白差 2px；而 <code>.stat</code> 与
+            <code>.notes</code> 同为内嵌块，却一个用 <code>--surface-warm</code> 一个用 <code>--surface</code>。
+          </p>
+        </div>
+
+        <div class="board good">
+          <span class="tag">✓ 修正后（两档 + 一个明确的例外）</span>
+          <div class="stack">
+            <div class="g-tierA">
+              <div class="row"><span class="big">主卡片</span><span class="label">20px / r18 / #fff</span></div>
+            </div>
+            <div class="g-tierA">
+              <div class="row"><span class="big">主卡片（原 report-card 归此档）</span><span class="label good">20px / r18 / #fff</span></div>
+            </div>
+            <div class="g-tierB">
+              <div class="label">内嵌块 · 统计 .stat &nbsp;→ 14/16px / r12 / surface</div>
+            </div>
+            <div class="g-tierB">
+              <div class="label">内嵌块 · 备注 .notes → 14/16px / r12 / surface</div>
+            </div>
+            <div class="g-tierB">
+              <div class="label">内嵌块 · 选项卡 .opt-card → <span class="good">14/16px / r12 / surface</span></div>
+            </div>
+            <div class="g-tierB">
+              <div class="label">内嵌块 · 生成结果 .gen-out → <span class="good">14/16px / r12 / surface</span></div>
+            </div>
+            <div class="g-drop">
+              <div class="label">拖放区 .dropzone → <span class="good">22/18px / r12 / surface</span>（虚线保留）</div>
+            </div>
+            <div class="g-banner">
+              行内提示条 .banner → <span class="good">8/12px / r8</span>（<strong>明确不是卡片</strong>）
+            </div>
+          </div>
+          <p class="note">
+            规则只有三条：<strong>主卡片统一 A 档</strong>、<strong>内嵌块统一 B 档</strong>、
+            <strong>提示条不算卡片但取值固定</strong>。层级感靠"白 vs 浅灰"表达，不再靠 padding 差 2px。
+          </p>
+        </div>
+      </div>
+
+      <h2>② 规范表</h2>
+      <table>
+        <thead>
+          <tr><th>档</th><th>包含的类</th><th>padding</th><th>圆角</th><th>背景</th><th>边框</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>A · 主卡片</strong></td>
+            <td><code>.card</code> <code>.report-card</code> <code>.panel</code> <code>.login-card</code> <code>.lock-card</code></td>
+            <td><code>var(--space-5)</code> = 20px</td><td><code>--radius-lg</code> = 18px</td>
+            <td><code>--bg</code></td><td><code>1px --border</code></td>
+          </tr>
+          <tr>
+            <td><strong>B · 内嵌块</strong></td>
+            <td><code>.notes</code> <code>.stat</code> <code>.gen-out</code> <code>.opt-card</code></td>
+            <td><code>14px 16px</code></td><td><code>--radius-md</code> = 12px</td>
+            <td><code>--surface</code></td><td><code>1px --border</code></td>
+          </tr>
+          <tr>
+            <td>B′ · 拖放区</td>
+            <td><code>.dropzone</code></td>
+            <td><code>22px 18px</code></td><td><code>--radius-md</code> = 12px</td>
+            <td><code>--surface</code></td><td><code>1px dashed --border</code></td>
+          </tr>
+          <tr>
+            <td>N · 行内提示条</td>
+            <td><code>.banner</code><span class="note">（不属于卡片）</span></td>
+            <td><code>8px 12px</code></td><td><code>--radius-sm</code> = 8px</td>
+            <td><code>--accent-soft</code></td><td>无</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="note">
+        另：把 <code>--surface-warm</code> 从"内嵌块背景"里撤出 —— 它和 <code>--surface</code>
+        只差 4 个色阶（<code>#fbfbfd</code> vs <code>#f5f5f7</code>），肉眼分不出却被当成两套，是"看着乱"的另一半来源。
+        建议只保留一个内嵌块灰，<code>--surface-warm</code> 留给页面级的极浅分区。
+      </p>
+
+      <h2>③ 可直接并入 <code>app.css</code> 的补丁</h2>
+      <pre><span class="c">/* ===== 卡片规范统一（追加到 app.css 末尾即可；本文件在最后，天然覆盖前面的同权重声明） ===== */</span>
+
+<span class="c">/* A 档 · 主卡片：内边距与圆角只认这一组值 */</span>
+<span class="k">.card</span>, <span class="k">.report-card</span>, <span class="k">.panel</span>, <span class="k">.login-card</span>, <span class="k">.lock-card</span> {
+  padding: var(--space-5);
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+
+<span class="c">/* B 档 · 内嵌块：比主卡片小一号，但四个类之间必须一致 */</span>
+<span class="k">.notes</span>, <span class="k">.stat</span>, <span class="k">.gen-out</span>, <span class="k">.opt-card</span> {
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+<span class="c">/* B′ · 拖放区：虚线边框是语义，保留；尺寸归到 B 档的大变体 */</span>
+<span class="k">.dropzone</span> {
+  padding: 22px 18px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+<span class="c">/* N · 行内提示条：不是卡片，但取值固定下来 */</span>
+<span class="k">.banner</span> {
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+}
+
+<span class="c">/* 危险语义只换边框色，不再另起一套尺寸 */</span>
+<span class="k">.danger-card</span> { border-color: color-mix(in oklab, var(--danger) 42%, var(--border)); }
+
+<span class="c">/* 卡片内的卡片：保持"层级递减"，不要继承主卡片的内边距 */</span>
+<span class="k">.card</span> <span class="k">.card</span>,
+<span class="k">.card</span> <span class="k">.notes</span>,
+<span class="k">.card</span> <span class="k">.stat</span>,
+<span class="k">.card</span> <span class="k">.gen-out</span> { padding: 14px 16px; border-radius: var(--radius-md); }
+</pre>
+    </div>
+  </body>
+</html>
