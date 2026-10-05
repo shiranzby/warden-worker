@@ -106,6 +106,11 @@ sql/global_domains_seed.sql
 !.deploycheck/probe-mvp-live.mjs
 !.deploycheck/diag-mvp-live.mjs
 !.deploycheck/diag-mvp2-live.mjs
+!.deploycheck/diag-totp-clock.mjs
+#   ↑ 「所有 TOTP 都错」的第一嫌疑＝设备时钟。这个脚本先自证 RFC 6238 向量, 再量
+#     本机 vs 权威时钟的偏差并换算成 TOTP 步长差。零依赖、不碰真实账号密钥
+#     (示例用的是 RFC 公开测试向量)。入库前已按本文件开头那条命令跑过扫描:
+#     首次命中变量名 `SECRET`, 已改名 `RFC_VECTOR_B32` 后无命中。
 
 # shytest.cc.cd 测试通道的静态资源目录 = 前端 build 去掉 *.map 的副本(258 文件 / 73MB)。
 # 是纯构建产物且体积巨大, 不入库 —— 需要时按 test-proxy/wrangler.test.toml 顶部的命令重新打。
