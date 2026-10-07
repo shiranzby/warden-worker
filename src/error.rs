@@ -107,7 +107,15 @@ impl IntoResponse for AppError {
                     AppError::TwoFactorRequired(_) | AppError::ApiJson { .. } => unreachable!(),
                 };
 
-                let body = Json(json!({ "error": error_message }));
+                // Bitwarden 客户端只认 `message`。
+                // `BaseResponse.getResponseProperty` 依次尝试 Message → message → MESSAGE,
+                // 从不读 `error`; 缺少 `message` 时前端一律回退到通用文案
+                // 「发生意外错误。」, 真实原因被彻底吞掉。
+                // 这里同时输出两个键: `message` 给客户端, `error` 保持向后兼容。
+                let body = Json(json!({
+                    "error": error_message.clone(),
+                    "message": error_message,
+                }));
                 (status, body).into_response()
             }
         }

@@ -224,7 +224,10 @@ pub async fn register(
     if !payload.has_valid_compat_format() {
         return Err(AppError::api_json(
             StatusCode::UNPROCESSABLE_ENTITY,
-            json!({ "error": "Unexpected RegisterData format" }),
+            json!({
+                "error": "Unexpected RegisterData format",
+                "message": "Unexpected RegisterData format",
+            }),
         ));
     }
 
@@ -239,7 +242,30 @@ pub async fn register(
         .split(',')
         .any(|pattern| glob_match(pattern.trim(), &payload.email))
     {
-        return Err(AppError::Unauthorized("Not allowed to signup".to_string()));
+        return Err(AppError::Unauthorized(
+            "该邮箱不在允许注册的白名单内（服务端 ALLOWED_EMAILS 未覆盖），无法注册。".to_string(),
+        ));
+    }
+
+    let db = db::get_db(&env)?;
+
+    // 邮箱唯一性预检。
+    // `users.email` 上有 UNIQUE 约束, 但直接 INSERT 撞约束只会冒出一个笼统的
+    // D1 错误(原先还被映射成 500 "Database error"), 用户完全无法自救。
+    // 这里提前查一次, 把"这个邮箱已经注册过了"变成能看懂、能照做的提示。
+    // 用 to_lowercase() 与下面 INSERT 落库的写法保持一致, 避免大小写导致漏判。
+    let email_normalized = payload.email.to_lowercase();
+    let existing_user_id: Option<String> = db
+        .prepare("SELECT id FROM users WHERE email = ?1")
+        .bind(&[email_normalized.clone().into()])?
+        .first(Some("id"))
+        .await
+        .map_err(|_| AppError::Database)?;
+
+    if existing_user_id.is_some() {
+        return Err(AppError::BadRequest(
+            "该邮箱已注册，请直接登录；如需新账号请换用其他邮箱。".to_string(),
+        ));
     }
 
     let kdf = payload.kdf();
@@ -262,7 +288,6 @@ pub async fn register(
     )
     .await?;
 
-    let db = db::get_db(&env)?;
     let now = db::now_string();
 
     // Only store kdf_memory and kdf_parallelism for Argon2id, clear for PBKDF2
@@ -277,7 +302,7 @@ pub async fn register(
         name: payload.name,
         avatar_color: None,
         avatar_image: None,
-        email: payload.email.to_lowercase(),
+        email: email_normalized,
         email_verified: false,
         master_password_hash: hashed_password,
         master_password_hint: payload.master_password_hint,
