@@ -111,6 +111,19 @@ sql/global_domains_seed.sql
 #     本机 vs 权威时钟的偏差并换算成 TOTP 步长差。零依赖、不碰真实账号密钥
 #     (示例用的是 RFC 公开测试向量)。入库前已按本文件开头那条命令跑过扫描:
 #     首次命中变量名 `SECRET`, 已改名 `RFC_VECTOR_B32` 后无命中。
+!.deploycheck/probe-register-errors.py
+#   ↑ 「注册一直提示发生意外错误」的回归闸门。零副作用: 只发**必然失败**的注册请求
+#     (已注册邮箱 / 白名单外邮箱 / 未注册邮箱+非法 KDF 的负向对照), 都在写库前终止。
+#     判据是不变量 —— 响应体必须**同时**含 `error` 与 `message`、`message` 非空、
+#     状态码在预期集合内。真实邮箱不写在文件里, 从 `--existing` 或
+#     `.deploycheck/.env.local` 的 `WARDEN_TEST_MAIL` 取(仓库是 public)。入库前扫描: 0 命中。
+!.deploycheck/probe-register-ui.mjs
+#   ↑ 同一条链路的 **UI 级** 版本: 真实浏览器走完 #/signup → #/finish-signup → 创建账户,
+#     直接断言 Toast 文本。只验 HTTP 不够 —— 中间还隔着 ValidationService.showError 里
+#     `data.message ? data.message : unexpectedError` 那个三元式。
+#     两侧都断言(必须含服务端原话 / 不得出现 i18n 回退文案), 只查一侧会假绿。
+#     用的是已注册邮箱 ⇒ 服务端在查重处 400, 零副作用。
+#     变量名用 DUMMY_MASTER_KEY 而非 *_PASSWORD, 以通过上面的凭据扫描(0 命中)。
 
 # shytest.cc.cd 测试通道的静态资源目录 = 前端 build 去掉 *.map 的副本(258 文件 / 73MB)。
 # 是纯构建产物且体积巨大, 不入库 —— 需要时按 test-proxy/wrangler.test.toml 顶部的命令重新打。
