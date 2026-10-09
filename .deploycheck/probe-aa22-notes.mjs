@@ -422,6 +422,10 @@ if (b0) {
     clamped.overflow > 50,
     `差=${clamped.overflow}`,
   );
+  /* ⚠️ 截图必须拍在**注入态**(规则还在的时候) —— 拍在 C3 之后就只会得到"恢复后"的样子,
+     与 B 系列逐像素雷同, 等于没有负向对照的视觉证据(2026-10-09 首跑就踩了这个)。 */
+  console.log("  截图(注入态, 应只剩一行 + 右侧滚动条): "
+    + (await shot("aa22-C1-clamped-390.png")));
   await tag.evaluate((el) => el.remove());
   await refit();
   const restored = await readNotes();
@@ -431,7 +435,7 @@ if (b0) {
     restored.h >= before.h - 2 && restored.overflow <= 2,
     `恢复 h=${restored.h}px(注回前 ${before.h}px)`,
   );
-  console.log("  截图: " + (await shot("aa22-C-negative-control-390.png")));
+  console.log("  截图(恢复态): " + (await shot("aa22-C3-restored-390.png")));
 }
 
 console.log(`\n===== 合计: ${pass} 通过 / ${fail} 失败 =====`);
