@@ -41,7 +41,7 @@
 | **P3** 本地热重载 | `https://localhost:8080`，改源码即时生效（已实测逐字节验证） | ✅ |
 | **P4** 版本兼容评估 | 结论：**零后端改动**，新功能默认全关，UI 行为 ≈ 6.4 | ✅ |
 | **P5** 迁样式类改动 | A/B/C/E/F/G/H/I/J/J2/J3/K/L/M 共 14 段 / 1248 行 | 🟡 **H+K+M 已落地**（210 行）、**F 主部 + F5 已落地**、**G 段随 J17 落地**（81 行）、**C 段筛选抽屉半边随 J9 落地**（39 行）、**A 段 + C 段「名称」表头工具行随 J7 落地**（150 行，见 §3 第五批）、**I/J/J2/J3 随第六批落地**（见 §3 第六批）、**B 段随第七批落地**（见 §3 第七批）、**E 段随第八批落地**（见 §3 第八批）、**L 整体淘汰**（J12 改走官方对话框） |
-| **P6** 迁结构类改动 | TOTP 徽章 / 表头工具行 / 头像卡片 / 验证码页 / 底部标签栏 等 | ✅ **全部落地**：J12 + J8 + J17 + J9 + J14 + J7（「选择」半边）+ J10 账户卡片 + J11 二级导航 + J13 头像上传 + 4b/I 段 + J6 行内 TOTP 徽章/B 段 + J16 验证码页/E 段 + J15 ng-select 躲软键盘 + **第十批/N 段（窄屏省高度，非 L4 迁入，见 §3 第十批）** + **第十一批/O 段（窄屏体验修复 7 条，非 L4 迁入，见 §3 第十一批）** + **第十二批/P 段** + **第十三批/Q 段** + **第十四批/R 段** + **第十五批/S 段** + **第十六批/T 段** + **第十七批/U 段** + **第十八批/V 段** + **第十九批/W 段** + **第二十批/X 段** + **第二十一批/Y 段**（这几批同为上线后按用户反馈做的修复，非 L4 迁入，逐批记录见 §1 里各自的「上线记录」） |
+| **P6** 迁结构类改动 | TOTP 徽章 / 表头工具行 / 头像卡片 / 验证码页 / 底部标签栏 等 | ✅ **全部落地**：J12 + J8 + J17 + J9 + J14 + J7（「选择」半边）+ J10 账户卡片 + J11 二级导航 + J13 头像上传 + 4b/I 段 + J6 行内 TOTP 徽章/B 段 + J16 验证码页/E 段 + J15 ng-select 躲软键盘 + **第十批/N 段（窄屏省高度，非 L4 迁入，见 §3 第十批）** + **第十一批/O 段（窄屏体验修复 7 条，非 L4 迁入，见 §3 第十一批）** + **第十二批/P 段** + **第十三批/Q 段** + **第十四批/R 段** + **第十五批/S 段** + **第十六批/T 段** + **第十七批/U 段** + **第十八批/V 段** + **第十九批/W 段** + **第二十批/X 段** + **第二十一批/Y 段** + **第二十二批/AA 段**（这几批同为上线后按用户反馈做的修复，非 L4 迁入，逐批记录见 §1 里各自的「上线记录」） |
 | **P7** 拆 L4 + 切线上 | 删 `custom/`、删 CI 注入步骤、切到 fork 的 `v2026.8.0` 产物 | ✅ **源码侧已完成**（`custom/` 3262 行已删、注入步骤已删并加负向守卫、`BW_WEB_VERSION` 默认改 `v2026.8.0`）；线上切换见下方说明 |
 
 > ### ⚠️→✅ P7 前置阻塞已修（2026-09-14 定位并修复：`b981110`）
@@ -617,6 +617,55 @@
 >
 > **回滚**：`git revert` fork 的 Y 段提交 + 本仓库（第 29 组 + 四处版本），
 > 把 `BW_WEB_VERSION` 改回 `v2026.8.10`，再重跑 `Build`。
+
+---
+
+> ### ✅ 上线记录 · 第二十二批 / AA 段（备注框随行数自增高，2026-10-09）
+> 版本号 `2026.8.11 → 2026.8.12`。**纯 CSS 两处，零 `.html`/`.ts` 改动，不引入 CDK。**
+>
+> | 需求（用户原话要点） | 根因 | 落法 |
+> |---|---|---|
+> | 「**备注那一行**我哪怕打很多行换行，显示也只显示一行，希望全部展示出来、**根据实际行数变化**」 | **两条规则都用 `!important` 钉了 `height`**：X2 `bit-dialog textarea[formcontrolname="notes"]` → 38px；K4 `bit-dialog bit-form-field textarea` → 54px（仅 ≤768px）。而**样式表里的 `!important` 战胜非 `!important` 的行内声明** ⇒ 应用自带的 `bitInput.adjustTextareaHeight()`（写 `style.height = scrollHeight`）被整条压掉，自增高彻底失效 | X2 作用域收窄到发送表单 `bit-dialog:has(tools-send-form) textarea[…]`（与 W1/X4 同口径）；K4 删掉 `height: 54px !important`，只留 `min-height` + 上下 6px 内边距 ⇒ **条目编辑的备注不需要任何新规则**，让行内 height 生效即自增高 |
+>
+> **🔴 本批最值得记的一条：`notes` 这个字段名是"发送表单"与"条目编辑"两边共用的。**
+> X2 当年的注释写着"必须用 `formcontrolname` 钉死，否则会连条目编辑的备注一起压掉" ——
+> 但 `tools/send/send-options.component.html` 的「私密备注」与
+> `vault/cipher-form/components/additional-options/additional-options-section.component.html`
+> 的「备注」**都叫 `notes`**，所以"钉死"一点区分作用都没起，
+> **正是它把用户报的这个字段压成了一行**。
+> ⇒ **钉作用域要钉"结构"（`:has(tools-send-form)`），不要钉"字段名"**；
+> 改一个"看起来精确"的属性选择器之前，先 `grep -rn 'formControlName="<名字>"' apps libs` 数一遍。
+>
+> **另一条：应用本来就有自增高**（`libs/components/src/input/input.directive.ts` 的
+> `bitInput` 在 `ngAfterViewInit` + `(input)` 上跑 `adjustTextareaHeight()`）。
+> 所以这不是"功能没实现"，是**被我们盖住了** —— 排查同类问题时先问"应用原本会不会自己做这件事"。
+> （`libs/vault/src/directives/readonly-textarea.directive.ts` 的注释还写明"把 `cdkTextareaAutosize`
+> 直接挂进 `bit-form-field` 的 textarea 会报错"，需等 `ngZone.onStable` ⇒ **本批刻意不引入 CDK**。）
+>
+> | workflow | run | 结论 | 耗时 | 备注 |
+> |---|---|---|---|---|
+> | `Build Web Vault (patched)`（`version=v2026.8.12`） | **`37903376771`** | ✅ success | **3m42s** | **30 组断言全绿**（本批新增第 30 组 AA：正向 3 条 + 负向 2 条） |
+> | `Build`（部署） | **`37903810351`** | ✅ success | **4m51s** | 线上 `vw-version.json` = `2026.8.12`，主包 `main.f380c4147d7e5eae4e87.js` |
+>
+> - 前端源码：fork `shypwd` = **`c921c77c85`**（`vaultwarden.css` + 版本两处）；本仓库 = **`a32e04b`**（workflow）/ **`4b6a50e`**（脚本入库）。
+> - 离线证伪：`.deploycheck/falsify-aa22.py` → **5 通过 / 0 失败**（K4 重新钉 height / K4 丢 min-height /
+>   X2 两个选择器改回裸写法，4 条各自回退都报警 + 对照组全绿）。
+> - 线上产物取证：`/css/vaultwarden.css` 与本地生产构建**逐字节一致**（`cmp` 去 CR 后 IDENTICAL）；
+>   正向 3 条命中、负向 2 条全为 0（裸 `bit-dialog textarea[formcontrolname=` = 0；
+>   顶格的 `height: 54px !important` = 0）。
+> - 运行期验收：`probe-aa22-notes.mjs` 四视口 **26 通过 / 0 失败**，读数与测试通道完全一致 ——
+>   空框 100px(rows=5/lh=20px)；输入 8 行 160px（1920/1440）/ 172px（768/390）；`scrollH == clientH`、差 0；
+>   **负向对照**：注回旧 X2 规则回落到 **38px + 内部滚动差 266**（复现用户现象），拿掉后恢复 172px。
+> - 回归对照（生产 `8.11` 基线 vs 测试通道 `8.12`）：layout FAIL 6 vs 6（全是 `INPUT.warden-acct-file`，
+>   属**既有缺陷**，与本次无关）；guard 的 FAIL 集合 ⊆ 生产那 22 条；func 31/3 vs 32/2（F8 SignalR 偶发）
+>   ⇒ **零新增回归**。
+>
+> **⚠️ 已知遗留（未修，非本批引入）**：窄屏 `/settings` 与 `/settings/account` 上
+> `INPUT.warden-acct-file`（我们自定义的账户切换文件控件）越界，3 视口 × 2 路由 = 6 条 layout FAIL，
+> 生产旧版上同样存在。要修得单独一批。
+>
+> **回滚**：`git revert` fork 的 AA 段提交（`c921c77c85`）+ 本仓库第 30 组断言，
+> 把 `BW_WEB_VERSION` 改回 `v2026.8.11`，再重跑 `Build`。
 
 ---
 
