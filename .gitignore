@@ -125,6 +125,21 @@ sql/global_domains_seed.sql
 #     用的是已注册邮箱 ⇒ 服务端在查重处 400, 零副作用。
 #     变量名用 DUMMY_MASTER_KEY 而非 *_PASSWORD, 以通过上面的凭据扫描(0 命中)。
 
+# 第二十二批/AA 段的验收三件套(「编辑条目 → 备注」随行数自增高)。入库前扫描: 0 命中,
+# 全部只从 .env.local / 环境变量读凭据。
+!.deploycheck/probe-aa22-notes.mjs
+#   ↑ 四视口(390/768/1440/1920)运行期验收 + **负向对照**(第 23 条起是本批最硬的部分):
+#     A 打开«编辑»即多行 / B 输入 8 行后 h >= lines*lineHeight 且 scrollH==clientH(无内部滚动)
+#     / C 把旧 X2 规则注回去必须回落到 38px 并出现滚动(复现用户报的现象), 拿掉后恢复。
+#     实测 26 通过 / 0 失败。
+!.deploycheck/falsify-aa22.py
+#   ↑ 守卫**离线证伪**: K4 重新钉 height / K4 丢 min-height / X2 两个选择器改回裸写法,
+#     4 条各自回退都必须报错 + 对照组全绿(防哑弹)。实测 5 通过 / 0 失败。
+!.deploycheck/diag-aa22-dom.mjs
+#   ↑ DOM 侦察: 逐步骤 dump hash / overlays / dialogs / textareas / rowButtons + 截图。
+#     用来定位"点击被引导弹窗吃掉""对话框根本没打开"这类问题 —— 本批一开始就栽在这上面
+#     (点「新增 → 登录」命中了左栏筛选的同名项)。
+
 # shytest.cc.cd 测试通道的静态资源目录 = 前端 build 去掉 *.map 的副本(258 文件 / 73MB)。
 # 是纯构建产物且体积巨大, 不入库 —— 需要时按 test-proxy/wrangler.test.toml 顶部的命令重新打。
 test-proxy/dist/

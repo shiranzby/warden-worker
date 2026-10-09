@@ -8,10 +8,10 @@
 
 | 类别 | 是否入库 | 例子 |
 |---|---|---|
-| **回归脚本**（真正的知识资产） | ✅ 入库（逐个白名单） | `b8-lib.mjs`、`verify-batch10.mjs`、`verify-batch11.mjs`、`verify-batch12.mjs`、`verify-batch13.mjs`、`verify-j15.mjs`、`verify-p7-browser.mjs`、`devserver-b8.config.js`、`poll-progress.sh`、`run-artifact-asserts.py` |
+| **回归脚本**（真正的知识资产） | ✅ 入库（逐个白名单） | `b8-lib.mjs`、`verify-batch*.mjs`、`verify-j15.mjs`、`verify-p7-browser.mjs`、`devserver-b8.config.js`、`poll-progress.sh`、`run-artifact-asserts.py`、`probe-{u17,b16,v18,w19,x20,y21}-*.mjs`、`probe-register-{errors.py,ui.mjs}`、`probe-aa22-notes.mjs`、`falsify-{b16,aa22}.py`、`diag-aa22-dom.mjs`<br>（清单随批次递增，**权威副本是 `.gitignore` 里那段带说明的白名单**） |
 | 产物快照 / 离线包 / 抓下来的 bundle | ❌ 忽略（GB 级、可再生） | `p1/`、`sh-test/`、`patched/`、`ours/`、`*.zip`、`*.tar.gz`、`dvmain*.js` |
 | 凭据与登录态 | ❌ 忽略 | `.env.local`、`shypwd-auth.json` |
-| 其余一次性诊断脚本 | ❌ 忽略 | `diag-*.mjs`、`probe-*.mjs`、`shot-*.mjs` … （⚠️ 这批多数带明文凭据，见下） |
+| 其余一次性诊断脚本 | ❌ 忽略 | `diag-b6-*`、`shot-*`、`seed-*`、`compare*.py` … （⚠️ 这批多数带明文凭据，见下）。**不是"名字像诊断脚本就一律不入库"** —— 上面那行里 `probe-aa22-notes.mjs` / `diag-aa22-dom.mjs` 就是扫描干净后加白名单入库的；判据是"扫过且为 0 命中"，不是文件名。 |
 
 > 还有一批**当年一起写、暂未入库**的脚本，想入库请照同样的"扫描 → 脱敏 → 加白名单"流程：
 > `verify-batch6/7/8.mjs`、`verify-j7/j9.mjs`、`verify-local.mjs`、`verify-tabbar.mjs`、`probe-*-assert.mjs`。
@@ -97,4 +97,6 @@ WARDEN_TEST_BASE=https://shypwd.cc.cd WARDEN_TEST_PROXY=http://127.0.0.1:7890 \
 ## 相关文档
 
 - 权威记录：`../docs/webvault-migration-checklist.md`（每批的改法、踩坑、上线 run、线上读数）
-- CI 侧的产物断言在 `../.github/workflows/build-web-vault.yaml`（**20 组**，不依赖本目录）
+- CI 侧的产物断言在 `../.github/workflows/build-web-vault.yaml`（**30 组**，不依赖本目录）
+  > 组数随批次增长：第十一批 19 → 第十八批 26 → 第二十批 28 → 第二十一批 29 → **第二十二批 30**。
+  > 改这个数字前先 `grep -c "^          # [0-9]*)" .github/workflows/build-web-vault.yaml` 数一遍。
