@@ -15,9 +15,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "产物标签 / artifact 名 (如 v2026.8.11)。会与源码里的版本核对, 不一致直接失败"
+        description: "产物标签 / artifact 名 (如 v2026.8.12)。会与源码里的版本核对, 不一致直接失败"
         required: true
-        default: "v2026.8.11"
+        default: "v2026.8.12"
 
 env:
   # 我们的前端源码 fork。定制已直接落在源码里(见 fork 的 shypwd 分支)。
@@ -887,7 +887,7 @@ jobs:
                       'main#main-content app-header header:has(bit-tab-nav-bar)' \
                       'bit-dialog > section > header' \
                       'body:has(bit-dialog):not(:has(tools-send-form)) #warden-tabbar' \
-                      'bit-dialog textarea[formcontrolname="text"]' \
+                      'bit-dialog:has(tools-send-form) textarea[formcontrolname="text"]' \
                       'main#main-content tools-send-list > [slot="filters"]')
           for lit in "${U_CSS_LITS[@]}"; do
             grep -qF -- "${lit}" .vw.css \
@@ -906,9 +906,15 @@ jobs:
             #    规则本体已搬到 X 段（文件末尾 X2），U4 处留了指针注释。
             #    ⚠️ 这段注释必须在 `case` **之前** —— 放进 case 体里会被
             #       `.deploycheck/probe-s15-guard.py` 的模式解析当成模式的一部分。
+            # ⚠️ 第二十二批/AA 段: `bit-dialog textarea[formcontrolname="text"]` 已被**收窄**
+            #    成 `bit-dialog:has(tools-send-form) textarea[formcontrolname="text"]`
+            #    (裸写法会误伤条目编辑的「备注」—— 那个字段也叫 notes)。
+            #    它仍是**顶格(全局)**规则 ⇒ 继续留在这份 skip 列表里。
+            #    ⚠️ 这段注释必须在 `case` **之前** —— 放进 case 体里会被
+            #       `.deploycheck/probe-s15-guard.py` 的模式解析当成模式的一部分。
             case "${lit}" in
               'U 段. 移动端第五轮反馈(第十七批)'|\
-              'bit-dialog textarea[formcontrolname="text"]') continue ;;
+              'bit-dialog:has(tools-send-form) textarea[formcontrolname="text"]') continue ;;
             esac
             if grep -nF -- "${lit}" .vw.css | grep -qE '^[0-9]+:[^[:space:]]'; then
               echo "❌ 第十七批的规则 '${lit}' 存在顶格(全局)写法: 桌面端也会被改掉" >&2
@@ -1062,9 +1068,11 @@ jobs:
           #     .vw.css   'X 段. 电脑端（桌面）一批反馈（第二十批）' —— 段横幅(原样发布, 注释不剥)。
           #     .vw.css   X1b 的 `body.warden-avatar-on main#main-content app-header bit-avatar svg`
           #               —— 页头头像跟随本地头像(--warden-avatar), 与账户卡片同口径。
-          #     .vw.css   X2 的 `bit-dialog textarea[formcontrolname="text"]`
+          #     .vw.css   X2 的 `bit-dialog:has(tools-send-form) textarea[formcontrolname="text"]`
           #               —— 从 U4 提升为全局; 这里再断一次是因为**归属变了**(现在由 X 段负责),
           #                  而且它已从 U 段的负向守卫里移出, 需要有另一处正向断言兜住。
+          #               ⚠️ 第二十二批/AA 段把它**收窄**成带 `:has(tools-send-form)` 的写法
+          #                  (裸写法会误伤条目编辑的「备注」), 本字面量同步跟上。
           #     .vw.css   X4 的 `...::-webkit-inner-spin-button`
           #               —— 藏掉「最大访问次数」的原生数字微调箭头(它右侧已有自带的 −/+)。
           #
@@ -1079,7 +1087,7 @@ jobs:
           #        X4 收窄到发送表单)。这是第一批"整批都不需要顶格守卫"的改动 ——
           #        所以下面只做存在性断言, 不要照抄别的批次去加 `case ... continue`。
           X_CSS_LITS=('X 段. 电脑端（桌面）一批反馈（第二十批）' \
-                      'bit-dialog textarea[formcontrolname="text"]' \
+                      'bit-dialog:has(tools-send-form) textarea[formcontrolname="text"]' \
                       'body.warden-avatar-on main#main-content app-header bit-avatar svg' \
                       '::-webkit-inner-spin-button')
           for lit in "${X_CSS_LITS[@]}"; do
@@ -1119,8 +1127,53 @@ jobs:
               || { echo "❌ 产物 main.js 里找不到第二十一批的标记 '${lit}'" >&2; fail=1; }
           done
 
+          # 30) 第二十二批 / AA 段: 「编辑条目 → 备注」打多少行都只显示一行(用户报的 1 条)
+          #     ← apps/web/src/css/vaultwarden.css   (X2 收窄到发送表单 + K4 去掉 height 钉死)
+          #
+          #     现象: 条目编辑/新增对话框的「备注」(`<textarea rows="5" formControlName="notes">`,
+          #           `additional-options-section.component.html`)被压成一行高, 右侧一条内部滚动条
+          #           —— 打多少行都看不全。
+          #     根因: **两条规则都用 `!important` 钉了 `height`**:
+          #             · X2  `bit-dialog textarea[formcontrolname="notes"]`   height: 38px
+          #             · K4  `bit-dialog bit-form-field textarea`             height: 54px
+          #           而 `notes` 这个名字是**两边共用**的(发送表单「私密备注」也叫 notes),
+          #           ⇒ X2 当年"用 formcontrolname 钉死"根本没起到区分作用, 一并误伤了条目的备注。
+          #           样式表里的 `!important` 声明**战胜**非 `!important` 的行内声明 ⇒
+          #           `bitInput` 写的行内 height(`adjustTextareaHeight()` = `height: scrollHeight`)
+          #           被压掉, 应用**自带的**自增高彻底失效(不是"没实现", 是被盖住了)。
+          #     修法: X2 收窄到 `:has(tools-send-form)`(与 W1 / X4 同一口径); K4 只留 min-height + 内边距。
+          #           条目的备注**不需要任何新规则** —— 让行内 height 生效即自增高。
+          #
+          #     .vw.css  正向: 收窄后的 X2 选择器 + K4 的新写法(min-height)必须在。
+          #     .vw.css  负向: 两个"钉死 height"的旧写法必须**消失** —— 它们就是本批的成因,
+          #                   比"新选择器在不在"更能说明"真的改了"。
+          #     ⚠️ 运行期判据: `.deploycheck/probe-aa22-notes.mjs`
+          #        (390/768/1440/1920 四视口 × 正负成对: 输入多行后必须长高、插回旧规则必须回落)。
+          AA_CSS_POS=('第二十二批' \
+                      'bit-dialog:has(tools-send-form) textarea[formcontrolname="notes"]' \
+                      'min-height: 54px !important')
+          for lit in "${AA_CSS_POS[@]}"; do
+            grep -qF -- "${lit}" .vw.css \
+              || { echo "❌ css/vaultwarden.css 里找不到第二十二批的标记 '${lit}'" >&2; fail=1; }
+          done
+          #   ★ 负向 ①: 裸的 `bit-dialog textarea[formcontrolname=…]` 必须已经消失。
+          #     判据带 `formcontrolname=` 是为了**不会**误命中收窄后的写法
+          #     (`bit-dialog:has(tools-send-form) textarea[…` 里 `bit-dialog` 后面不是空格)。
+          if grep -qF -- 'bit-dialog textarea[formcontrolname=' .vw.css; then
+            echo "❌ css/vaultwarden.css 里仍有未收窄的 'bit-dialog textarea[formcontrolname=…]'" >&2
+            fail=1
+          fi
+          #   ★ 负向 ②: K4 原来那句 `height: 54px !important` 必须已经消失。
+          #     ⚠️ **不能**用 `grep -qF 'height: 54px !important'` —— 它是
+          #        `min-height: 54px !important` 的**子串**, 会永远命中(写成那样就是假失败)。
+          #        所以这里锚行首(允许缩进)做精确匹配。
+          if grep -qE '^[[:space:]]*height: 54px !important' .vw.css; then
+            echo "❌ K4 仍在钉死 height: 54px(第二十二批已改成 min-height 兜底)" >&2
+            fail=1
+          fi
+
           [ "${fail}" -eq 0 ] || exit 1
-          echo "✅ 二十九项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11 + 第七批 J6/B段 + 第八批 J16/E段 + 第九批 J15 + 第十批/N段 + 第十一批/O段 + 第十二批/P段 + 第十三批/Q段 + 第十四批/R段 + 第十五批/S段 + 第十六批/T段 + 第十七批/U段 + 第十八批/V段 + 第十九批/W段 + 第二十批/X段 + 第二十一批/Y段)均已在实际产物中得到验证"
+          echo "✅ 三十项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11 + 第七批 J6/B段 + 第八批 J16/E段 + 第九批 J15 + 第十批/N段 + 第十一批/O段 + 第十二批/P段 + 第十三批/Q段 + 第十四批/R段 + 第十五批/S段 + 第十六批/T段 + 第十七批/U段 + 第十八批/V段 + 第十九批/W段 + 第二十批/X段 + 第二十一批/Y段 + 第二十二批/AA段)均已在实际产物中得到验证"
 
       - name: Disk space after
         if: always()
