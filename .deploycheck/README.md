@@ -8,7 +8,7 @@
 
 | 类别 | 是否入库 | 例子 |
 |---|---|---|
-| **回归脚本**（真正的知识资产） | ✅ 入库（逐个白名单） | `b8-lib.mjs`、`verify-batch*.mjs`、`verify-j15.mjs`、`verify-p7-browser.mjs`、`devserver-b8.config.js`、`poll-progress.sh`、`run-artifact-asserts.py`、`probe-{u17,b16,v18,w19,x20,y21}-*.mjs`、`probe-register-{errors.py,ui.mjs}`、`probe-aa22-notes.mjs`、`falsify-{b16,aa22}.py`、`diag-aa22-dom.mjs`<br>（清单随批次递增，**权威副本是 `.gitignore` 里那段带说明的白名单**） |
+| **回归脚本**（真正的知识资产） | ✅ 入库（逐个白名单） | `b8-lib.mjs`、`verify-batch*.mjs`、`verify-j15.mjs`、`verify-p7-browser.mjs`、`devserver-b8.config.js`、`poll-progress.sh`、`run-artifact-asserts.py`、`probe-{u17,b16,v18,w19,x20,y21}-*.mjs`、`probe-register-{errors.py,ui.mjs}`、`probe-aa22-notes.mjs`、`falsify-{b16,aa22}.py`、`diag-aa22-dom.mjs`、`check-{admin-static,contrast}.py`、`probe-admin-{ui.mjs,prod.py,prod-shots.mjs,live-contrast.mjs}`、`probe-mainapp-smoke.mjs`、`diag-admin-768.mjs`、`setup-admin-test-db.py`<br>（清单随批次递增，**权威副本是 `.gitignore` 里那段带说明的白名单**） |
 | 产物快照 / 离线包 / 抓下来的 bundle | ❌ 忽略（GB 级、可再生） | `p1/`、`sh-test/`、`patched/`、`ours/`、`*.zip`、`*.tar.gz`、`dvmain*.js` |
 | 凭据与登录态 | ❌ 忽略 | `.env.local`、`shypwd-auth.json` |
 | 其余一次性诊断脚本 | ❌ 忽略 | `diag-b6-*`、`shot-*`、`seed-*`、`compare*.py` … （⚠️ 这批多数带明文凭据，见下）。**不是"名字像诊断脚本就一律不入库"** —— 上面那行里 `probe-aa22-notes.mjs` / `diag-aa22-dom.mjs` 就是扫描干净后加白名单入库的；判据是"扫过且为 0 命中"，不是文件名。 |
@@ -76,6 +76,52 @@ WARDEN_TEST_BASE=https://shypwd.cc.cd WARDEN_TEST_PROXY=http://127.0.0.1:7890 \
   靠改视口而不是换 context 来覆盖窄屏/桌面。
 - 退出码：有 FAIL 就是 1，可直接串进流程。
 - 截图落在 `shots-b11/`（已忽略）。
+
+## AB 段（账号管理台 `/admin/`）怎么验
+
+这一批**不是前端源码改动**，是后端 Worker 新增了 `admin/index.html` + `/api/admin/*`（`src/handlers/admin.rs`）。
+所以验证分**测试通道**与**生产**两条，**两者的凭据与脚本都不同，别混用**：
+
+### ① 测试通道（`warden-worker-test`，`test.shytest.cc.cd`）—— 可以写
+
+```bash
+# 部署测试通道（复制 admin/index.html 进 dist、体检 dist、确保 ADMIN_TOKEN secret、wrangler deploy）
+python test-proxy/deploy-test.py
+python test-proxy/deploy-test.py --skip-frontend   # 只更管理台与 worker.js
+
+# 连的是**独立测试库** vault1-admin-test，不是生产库
+node   .deploycheck/probe-admin-ui.mjs        # 64 通过 / 0 失败，含 3 条负向对照
+python .deploycheck/setup-admin-test-db.py    # 需要时重灌测试种子
+```
+
+- 凭据 = `.env.local` 的 **`ADMIN_TOKEN_TEST`**。
+- 写操作**只碰一次性假账号 `friend-c@163.com` 且做完还原**，并且**先断言页面右上角 `#envTag` 是"测试"**才继续写
+  —— 万一 token 或域名配错，脚本会先停下来而不是去打生产。
+- `probe-admin-ui.mjs` 里有 3 条**负向对照**（拿掉护栏必须报错），防"哑弹"。
+
+### ② 生产（`shypwd.cc.cd`）—— **只读，绝不下写**
+
+```bash
+python .deploycheck/probe-admin-prod.py            # 26 通过 / 0 失败（纯 HTTP，只读）
+node   .deploycheck/probe-admin-prod-shots.mjs     # 28 通过 / 0 失败（四视口 × 明暗截图 + 只读守卫）
+node   .deploycheck/probe-mainapp-smoke.mjs        # 8 通过 / 0 失败（确认密码库主应用没被影响）
+node   .deploycheck/probe-admin-live-contrast.mjs  # 在真实页面上读 resolved 色值实算对比度
+```
+
+- 凭据 = `.env.local` 的 **`ADMIN_TOKEN`**（与 CF Worker secret、GitHub Actions secret **三处同值**）。
+- **只读守卫**：`probe-admin-prod-shots.mjs` 在 `page.on("request")` 里把任何
+  **非 GET/HEAD 且打到 `/api/admin/`** 的请求记为失败 ⇒ "我到底点没点到写按钮"不靠记忆。
+  `probe-admin-prod.py` 还会在前后各 `SELECT COUNT(*)` 一次，用 `5→5` 机器证明零副作用。
+- **生产上的停用 / 踢下线 / 重置 2FA / 删除必须由用户本人拍板**，脚本一律不发写请求。
+
+### ③ 离线两条（不连网，改页面后先跑这个）
+
+```bash
+python .deploycheck/check-admin-static.py   # 28 通过 / 0 失败（含 [hidden] 假隐藏陷阱）
+python .deploycheck/check-contrast.py       # 33 通过 / 0 失败（实算前景×背景含 alpha 合成）
+```
+
+> ⚠️ 对比度**必须实算**：照抄 iOS 灰阶 `--label-2:.62` 实算只有 **3.62:1**，肉眼完全看不出来。
 
 ## 被删掉的 2.8GB 是什么（需要时怎么拿回来）
 

@@ -41,7 +41,7 @@
 | **P3** 本地热重载 | `https://localhost:8080`，改源码即时生效（已实测逐字节验证） | ✅ |
 | **P4** 版本兼容评估 | 结论：**零后端改动**，新功能默认全关，UI 行为 ≈ 6.4 | ✅ |
 | **P5** 迁样式类改动 | A/B/C/E/F/G/H/I/J/J2/J3/K/L/M 共 14 段 / 1248 行 | 🟡 **H+K+M 已落地**（210 行）、**F 主部 + F5 已落地**、**G 段随 J17 落地**（81 行）、**C 段筛选抽屉半边随 J9 落地**（39 行）、**A 段 + C 段「名称」表头工具行随 J7 落地**（150 行，见 §3 第五批）、**I/J/J2/J3 随第六批落地**（见 §3 第六批）、**B 段随第七批落地**（见 §3 第七批）、**E 段随第八批落地**（见 §3 第八批）、**L 整体淘汰**（J12 改走官方对话框） |
-| **P6** 迁结构类改动 | TOTP 徽章 / 表头工具行 / 头像卡片 / 验证码页 / 底部标签栏 等 | ✅ **全部落地**：J12 + J8 + J17 + J9 + J14 + J7（「选择」半边）+ J10 账户卡片 + J11 二级导航 + J13 头像上传 + 4b/I 段 + J6 行内 TOTP 徽章/B 段 + J16 验证码页/E 段 + J15 ng-select 躲软键盘 + **第十批/N 段（窄屏省高度，非 L4 迁入，见 §3 第十批）** + **第十一批/O 段（窄屏体验修复 7 条，非 L4 迁入，见 §3 第十一批）** + **第十二批/P 段** + **第十三批/Q 段** + **第十四批/R 段** + **第十五批/S 段** + **第十六批/T 段** + **第十七批/U 段** + **第十八批/V 段** + **第十九批/W 段** + **第二十批/X 段** + **第二十一批/Y 段** + **第二十二批/AA 段**（这几批同为上线后按用户反馈做的修复，非 L4 迁入，逐批记录见 §1 里各自的「上线记录」） |
+| **P6** 迁结构类改动 | TOTP 徽章 / 表头工具行 / 头像卡片 / 验证码页 / 底部标签栏 等 | ✅ **全部落地**：J12 + J8 + J17 + J9 + J14 + J7（「选择」半边）+ J10 账户卡片 + J11 二级导航 + J13 头像上传 + 4b/I 段 + J6 行内 TOTP 徽章/B 段 + J16 验证码页/E 段 + J15 ng-select 躲软键盘 + **第十批/N 段（窄屏省高度，非 L4 迁入，见 §3 第十批）** + **第十一批/O 段（窄屏体验修复 7 条，非 L4 迁入，见 §3 第十一批）** + **第十二批/P 段** + **第十三批/Q 段** + **第十四批/R 段** + **第十五批/S 段** + **第十六批/T 段** + **第十七批/U 段** + **第十八批/V 段** + **第十九批/W 段** + **第二十批/X 段** + **第二十一批/Y 段** + **第二十二批/AA 段** + **第二十三批/AB 段（账号管理台 `/admin/`，首个纯后端功能，非 L4 迁入）**（这几批同为上线后按用户反馈做的修复/新增，非 L4 迁入，逐批记录见 §1 里各自的「上线记录」） |
 | **P7** 拆 L4 + 切线上 | 删 `custom/`、删 CI 注入步骤、切到 fork 的 `v2026.8.0` 产物 | ✅ **源码侧已完成**（`custom/` 3262 行已删、注入步骤已删并加负向守卫、`BW_WEB_VERSION` 默认改 `v2026.8.0`）；线上切换见下方说明 |
 
 > ### ⚠️→✅ P7 前置阻塞已修（2026-09-14 定位并修复：`b981110`）
@@ -666,6 +666,87 @@
 >
 > **回滚**：`git revert` fork 的 AA 段提交（`c921c77c85`）+ 本仓库第 30 组断言，
 > 把 `BW_WEB_VERSION` 改回 `v2026.8.11`，再重跑 `Build`。
+
+---
+
+> ### ✅ 上线记录 · 第二十三批 / AB 段（账号管理台 `/admin/`，2026-10-10）
+> 用户诉求原话要点：「我会额外注册几个七天的账户…但是**我没有一个账户单独的管理后台的页面** 也**无法直接跳转这些子账号注册的密码库** /
+> 或者就比如说把 `2958779577@qq.com` 当作**主账户管理员账户** **有额外的页面显示可以控制编辑删除查看其余注册的子账号**？」
+>
+> **交付 = 一个管理台页面 + 一组 `/api/admin/*` 接口**，落在**后端仓库**（不是前端）：
+> `admin/index.html`（免构建单文件，**35988 B**）由 CI 新的第 9 步复制进 `public/web-vault/admin/`，
+> 接口是 Rust Worker 的新模块 `src/handlers/admin.rs`（572 行，8 条路由）。
+> ⇒ **前端版本号不动**（仍 `2026.8.12`），`vw-version.json` 不变 —— 管理台与 web-vault 版本**解耦**。
+>
+> #### 能力边界（先说做不到的）
+>
+> | 能 | 不能 |
+> |---|---|
+> | 列账号**元数据**（邮箱 / 条目数 / 设备数 / 2FA / 创建时间 / 状态）、统计、改到期、停用 / 启用、踢下线、重置 2FA、删号（连存储一起删） | **看别人条目的明文** —— 零知识：库里只有 `master_password_hash` + 加密态 `key`/`private_key`，条目 name/username/password/totp 全是密文 |
+>
+> ⇒ 用户问的「**直接跳转子账号密码库**」服务端做不到，能给的入口是"以该邮箱去登录页"，
+> 真正的查看只能靠**用户本人拿子账号主密码真登录**（子账号是他自己注册的，密码在他手上）。
+>
+> #### 五条安全边界（写在 `admin.rs` 的模块注释里）
+> 1. 鉴权只有 `X-Admin-Token` ↔ `ADMIN_TOKEN` secret，**常量时间比较**；未配 secret ⇒ **503** `not_configured`
+>    （且**故意不区分"为空"与"错误"**，避免变成探针）。
+> 2. 写操作**双保险**：`ADMIN_ENV != "test"` 时还要 `ADMIN_ALLOW_WRITES == "yes"`，否则 403 `write_refused`。
+> 3. **停用必须真停用**：不只写 `disabled_at`，还要**轮换 `security_stamp` + 删 `devices` 行** ——
+>    否则既有 access/refresh JWT 继续可用（`auth::decode_access_token` 每次都比对 sstamp，且要求 devices 里有对应行）。
+> 4. 登录拦截挂**三处出口**：password grant 的两条出口 **和 refresh 分支**
+>    （只堵 password ⇒ 停用后一直刷新就能续命；refresh 分支里插在 sstamp 比对之后、`device.touch()` 之前）。
+> 5. **删除要连存储一起删**：附件对象 → sends → ciphers/folders/devices/twofactor/auth_requests → users。
+>
+> ⚠️ **例外（有意为之）**：定时任务 `disable_expired_accounts()`（挂进 `#[event(scheduled)]`）**只写 `disabled_at`、不轮换 sstamp** ——
+> 无人介入的批量操作不该把所有人的登录态一起打散。
+>
+> #### 落地数据
+> - 新迁移 `migrations/0015_add_admin_fields.sql`：`ALTER TABLE users ADD COLUMN expires_at TEXT;` + `disabled_at TEXT;`。
+>   `User::is_login_blocked()` 用 `exp.as_str() <= now_iso`（ISO-8601 字典序即时间序）。两列均 `#[serde(default)]`，
+>   **既有账号两列皆 NULL ⇒ 行为与升级前逐字节一致**（这一条在验收里单列断言）。
+> - `wrangler.toml` 新增 `ADMIN_ENV="prod"` / `ADMIN_DB="vault1"` / `ADMIN_ALLOW_WRITES="yes"`；`sql/schema.sql` 同步补两列。
+> - 🔴 **D1 迁移要手动补一次**：生产库的 `d1_migrations` 只登记到 `0014`（前几批 schema 是手改的），
+>   CI 的 `Apply D1 database migrations` **不会自动补登** ⇒ 手动 `ALTER TABLE` × 2 + `INSERT OR IGNORE INTO d1_migrations`，
+>   再复核 `users` 的 `cid` 23/24 与 5 个真实账号的两列全 NULL。
+>
+> | 落地步骤 | 结果 |
+> |---|---|
+> | 先开 `ci/admin-console` 分支 + 一次性 `cargo check` 工作流（用完即删） | run **`38032092241`** success / **42s**（`cargo check` 步骤 **27s**）—— 本机**无 Rust 工具链**，类型错误只能靠 CI 挡 |
+> | `git merge --ff-only` 回 main，推 **`b5f734a`** | `Build` run **`38032284216`** success / **283s（4m43s）**，**19 步全绿**（第 9 步 `Add account admin console`、第 13 步 `Apply D1 database migrations`、第 15 步 `wrangler-action deploy`） |
+> | `ADMIN_TOKEN` 落三处同值（43 字符） | CF Worker secret（REST `PUT …/secrets` **201**）+ GitHub Actions secret（`set-gh-secret.py`，PyNaCl sealed box；回读 `created 06:51:12Z / updated 06:51:59Z`）+ 本地 `.deploycheck/.env.local` |
+> | `Set runtime secrets` 加 `ADMIN_TOKEN` | 循环改 **`${!kv:-}`** —— ⚠️ 原 `${!kv}` 在目标变量**未定义**时会撞 `set -u` 直接退出；用假 wrangler **离线**验证「四个都配」与「`ADMIN_TOKEN` 连 env 键都不给」两条分支均正确跳过 |
+>
+> #### 验收（全部在本机跑，生产侧**只发 GET**）
+> - **静态规约** `check-admin-static.py` **28 通过 / 0 失败** —— 含 `[6]` class 闭环、`[7]` **`[hidden]` 假隐藏陷阱**：
+>   `.gate{display:grid}` 是作者样式 (0,1,0)，会**压掉** UA 的 `[hidden]{display:none}`(0,1,0)
+>   ⇒ 必须自己补 `[hidden]{display:none !important}`，否则 `el.hidden = true` 只改属性、元素照样渲染。
+> - **对比度实算** `check-contrast.py` **33 通过 / 0 失败 / 3 接近下限**（按规范 §2.3 实算"前景 × 背景（含 alpha 合成）"）。
+>   ⚠️ 为什么必须算而不能看：照抄 iOS 灰阶 `--label-2:.62` 实算只有 **3.62:1**，肉眼完全看不出来。
+>   线上**真实页面** resolved 版 `probe-admin-live-contrast.mjs`：浅 `未开启 4.57 / 正常 4.81`、表头 `5.02`；
+>   深 `5.10 / 5.94`、表头 `6.26` —— 顺带**证伪**了"深色徽章文字偏暗"（那是截图被缩放造成的错觉）。
+> - **生产只读接口** `probe-admin-prod.py` **26 通过 / 0 失败**：鉴权负向（无凭据与错凭据**同样 401 且响应体不可区分**）、
+>   无令牌打写接口**必须 401 而非 403/404**、随机 uuid 打 4 个写接口**必须 404**（代码顺序上无写语句）、
+>   列表里**不含任何零知识字段**、`stats.users` 与列表条数一致、前后 `SELECT COUNT(*)` **5→5**。
+> - **生产只读截图** `probe-admin-prod-shots.mjs` **28 通过 / 0 失败**，带一条**只读守卫** ——
+>   `page.on("request")` 里任何 **非 GET/HEAD 且打到 `/api/admin/`** 的请求即计入失败
+>   ⇒ "我到底点没点到写按钮"不再靠记忆。
+> - **主应用没被影响** `probe-mainapp-smoke.mjs` **8 通过 / 0 失败**（首页 200 / Angular 挂载 / `viewport=device-width` 定制仍在 /
+>   `/css/vaultwarden.css` 200 且非空 / 落 `#/login` / `/api/config` 200 / **主动**请求 `/api/now` 200 / 0 console error）。
+> - **人工逐张过目** 12 张截图（`gate` × 2 + `dash` 明暗 × 4 视口 = 8 + `detail` × 2）：
+>   无错字 / 重叠 / 裁切；`dash-light-1440` 的 5 行数据（条目 1/1/0/4/11、设备 2/2/1/549/63）与
+>   `stats` API `{"disabled":0,"expiring":0,"items":17,"totp":0,"users":5}` 一致。
+> - **线上复核**：`/admin/` = 200 / **35988 B** / `text/html`，与 `HEAD:admin/index.html` 这个 git blob
+>   **逐字节相同**（sha256 `a42a70a95ae408f9…` 两端一致）；`vw-version.json` = `2026.8.12`（本批不动前端）。
+>   > ⚠️ 取证小坑：工作树里的 `admin/index.html` 是 **36845 B（CRLF）**，blob 是 **35988 B（LF）**，差 **857** = 行数。
+>   > 所以 `git hash-object <工作树文件>` 得到的哈希**不等于** blob 哈希 —— 要比对请用 `git show HEAD:<path>` 或 `git cat-file -s`。
+>
+> #### ⚠️ 有意没做的（避免过度设计）
+> - 管理台**不做"编辑"**（改邮箱 / 改密码）：零知识下"改密码"要重算 `master_password_hash` 与四件加密物，
+>   等于持有用户主密码 —— 没有安全可做的语义。用户原话里的"控制编辑删除查看"落地为
+>   **到期 / 停用 / 踢下线 / 重置 2FA / 删除**。
+> - 生产上的**停用 / 踢下线 / 重置 2FA / 删除**必须由**用户本人拍板** —— 自动验收一律只发 GET。
+>
+> **回滚**：`git revert` 本仓库 `b5f734a`（两列**留在库里**，无害，两处都是 `#[serde(default)]` 兼容）再重跑 `Build`。
 
 ---
 

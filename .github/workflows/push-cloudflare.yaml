@@ -366,8 +366,18 @@ jobs:
           ALLOWED_EMAILS: ${{ secrets.ALLOWED_EMAILS }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           JWT_REFRESH_SECRET: ${{ secrets.JWT_REFRESH_SECRET }}
+          # 账号管理台（/admin/）的鉴权令牌。真源是 GitHub 仓库密钥 —— 在这里补一句是为了
+          # "万一 Cloudflare 侧那个 secret 被误删/换环境"，下一次部署能自动恢复。
+          # 空值会被下面的循环跳过，所以没配这个密钥时行为与以前完全一致（只是管理台返回 503）。
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
         run: |
           set -euo pipefail
-          for kv in ALLOWED_EMAILS JWT_SECRET JWT_REFRESH_SECRET; do
+          for kv in ALLOWED_EMAILS JWT_SECRET JWT_REFRESH_SECRET ADMIN_TOKEN; do
+            # `${!kv:-}` 而不是 `${!kv}`：后者在目标变量**未定义**时会撞上 `set -u` 直接退出
+            # （GitHub 把缺失的 secret 解析成空串所以平时不炸，但少写一层映射就会）。
+            if [ -z "${!kv:-}" ]; then
+              echo "⏭️  $kv 未配置，跳过"
+              continue
+            fi
             printf '%s' "${!kv}" | npx --yes wrangler@${WRANGLER_VERSION} secret put "$kv"
           done

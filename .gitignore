@@ -140,6 +140,34 @@ sql/global_domains_seed.sql
 #     用来定位"点击被引导弹窗吃掉""对话框根本没打开"这类问题 —— 本批一开始就栽在这上面
 #     (点「新增 → 登录」命中了左栏筛选的同名项)。
 
+# 第二十三批/AB 段的验收件(账号管理台 `/admin/`)。入库前扫描: 9/9 零命中,
+# 全部只从 `.deploycheck/.env.local` 或环境变量读凭据(仓库是 public)。
+!.deploycheck/check-admin-static.py
+#   ↑ 静态规约: 7 组(含 [6] class 闭环、[7] `[hidden]` 假隐藏陷阱)。实测 28 通过 / 0 失败。
+!.deploycheck/check-contrast.py
+#   ↑ 按规范 §2.3 **实算** 33 项「前景 × 背景(含 alpha 合成)」对比度。33 通过 / 0 失败。
+#     为什么必须算而不能看: 照抄 iOS 灰阶(`--label-2:.62`)实算只有 3.62:1 —— 肉眼完全看不出来。
+!.deploycheck/probe-admin-ui.mjs
+#   ↑ 测试通道(warden-worker-test)的运行期验收: 64 通过 / 0 失败, 含 3 条负向对照。
+#     ⚠️ 它**只在测试通道**跑: 写操作只碰一次性假账号且做完还原, 并先断言 envTag 是"测试"。
+!.deploycheck/diag-admin-768.mjs
+#   ↑ 一次性列宽诊断(量 max-content vs 实际宽), 用来定位"768 下最后一列被裁"的真因。
+!.deploycheck/setup-admin-test-db.py
+#   ↑ 给**独立测试 D1**(vault1-admin-test)灌种子; 里面写死的是测试库 UUID, 与生产有 assert 互斥。
+!.deploycheck/probe-admin-prod.py
+#   ↑ 生产(`shypwd.cc.cd`)的**只读**验收: 26 通过 / 0 失败。三类: 读接口形状 / 鉴权负向
+#     (无凭据与错凭据必须同样 401 且响应体不可区分) / 写接口在鉴权失败时不得落库
+#     (用"调用前后 SELECT COUNT(*) 不变"机器证明)。**绝不发写请求。**
+!.deploycheck/probe-admin-prod-shots.mjs
+#   ↑ 生产四视口 × 明暗双主题截图 + 冒烟: 28 通过 / 0 失败。带一条"只读守卫"——
+#     任何非 GET/HEAD 且打到 `/api/admin/` 的请求都算失败, 于是"我点没点到写按钮"不再靠记忆。
+!.deploycheck/probe-mainapp-smoke.mjs
+#   ↑ 部署后确认**密码库主应用**没被影响: 首页/Angular 挂载/viewport 定制/css/vaultwarden.css/
+#     落到 #/login/api/config/api/now/0 console error。实测 8 通过 / 0 失败。
+!.deploycheck/probe-admin-live-contrast.mjs
+#   ↑ 在**线上真实页面**读 resolved 色值实算对比度(静态令牌表算的是声明, 这里算渲染结果)。
+#     实测浅 4.57 / 深 5.10(徽章)、表头 5.02 / 6.26 —— 顺便证伪了"深色徽章文字偏暗"的缩放错觉。
+
 # shytest.cc.cd 测试通道的静态资源目录 = 前端 build 去掉 *.map 的副本(258 文件 / 73MB)。
 # 是纯构建产物且体积巨大, 不入库 —— 需要时按 test-proxy/wrangler.test.toml 顶部的命令重新打。
 test-proxy/dist/

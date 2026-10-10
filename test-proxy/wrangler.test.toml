@@ -32,3 +32,19 @@ run_worker_first = ["/api/*", "/identity/*", "/notifications/*"]
 [vars]
 # 只为在页面上能看出这是测试环境；worker.js 目前不读它
 WARDEN_TEST_CHANNEL = "shytest"
+
+# ---- 账号管理台（/admin 页面 + /api/admin/*）----
+# ADMIN_TOKEN 是 **secret**，不写在这里，用:
+#   npx wrangler secret put ADMIN_TOKEN --config test-proxy/wrangler.test.toml
+# worker.js 里另有写操作护栏: ADMIN_ENV != "test" 时必须显式 ADMIN_ALLOW_PROD=yes 才放行。
+ADMIN_ENV = "test"
+ADMIN_DB = "vault1-admin-test"
+
+# 🔴 管理台只连**独立测试库** vault1-admin-test (766024ce-…)，
+#    绝不接生产库 vault1 (24892a66-2a3e-4e2e-a6c0-dbc3119b584e)。
+#    建库 + 灌测试数据: python .deploycheck/setup-admin-test-db.py
+#    管理台页面本身是 admin/index.html，部署前由 python test-proxy/deploy-test.py 复制进 dist/admin/。
+[[d1_databases]]
+binding = "DB"
+database_name = "vault1-admin-test"
+database_id = "766024ce-a2b7-49a2-bfe7-d45b250d642a"
