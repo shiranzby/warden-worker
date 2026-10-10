@@ -419,6 +419,11 @@ group("2. 提为 admin —— 入口出现，但改不了角色");
   const mine = page.locator(`[data-testid="admin-role-${target.id}"]`).first();
   const disabled = await mine.isDisabled().catch(() => null);
   check("角色下拉**置灰**（管理者改不了角色）", disabled === true, `disabled=${disabled}`);
+  // ⚠️ 这条抓的是"下拉回落到第一项"：只给 <select> 绑 [value] 时，options 还没进 DOM，
+  //    value 设不上 ⇒ 界面上永远显示「普通用户」。功能（change 读实际选中值）是对的，
+  //    但显示会骗人 —— 这条断言就是它第一次上线前抓到的（人工过目截图才发现）。
+  const curB = await mine.inputValue().catch(() => null);
+  check("下拉显示的当前值 == 账号真实角色(admin)", curB === "admin", `value=${curB}`);
   check("页面提示了为什么不能改",
     (await page.locator(".warden-admin-hint").first().innerText().catch(() => "")).length > 0);
 
@@ -437,7 +442,11 @@ group("2. 提为 admin —— 入口出现，但改不了角色");
       const wrap = document.querySelector(".warden-admin-tablewrap");
       const thead = document.querySelector(".warden-admin-table thead");
       const extras = [...document.querySelectorAll(".warden-admin-extra")];
-      const vis = (el) => !!el && getComputedStyle(el).display !== "none";
+      // ⚠️ 判"看不见"必须用 `getClientRects().length`, **不能用** `getComputedStyle().display`:
+      //    祖先被 display:none 藏掉时, 子元素自己算出来的 display 仍是它**声明的值**
+      //    —— `thead` 里那 3 个 `<th class="warden-admin-extra">` 就是这么被误判成"可见"的
+      //    (第一版报 15/18 是全没藏住; 修好 CSS 后报 3/18, 那 3 个全是 <th>, 是判据的锅)。
+      const vis = (el) => !!el && el.getClientRects().length > 0;
       return {
         docScrollW: document.documentElement.scrollWidth,
         innerW: window.innerWidth,
@@ -515,6 +524,8 @@ group("3. 提为 owner —— 角色下拉变为可选（admin ≠ owner 的对�
   const mine = page.locator(`[data-testid="admin-role-${target.id}"]`).first();
   const disabled = await mine.isDisabled().catch(() => null);
   check("角色下拉**不再置灰**（所有者能改角色）", disabled === false, `disabled=${disabled}`);
+  const curC = await mine.inputValue().catch(() => null);
+  check("下拉显示的当前值 == 账号真实角色(owner)", curC === "owner", `value=${curC}`);
   const opts = await mine.locator("option").allTextContents().catch(() => []);
   check("下拉里恰好有 普通用户/管理者/所有者 三个选项",
     opts.length === 3, `options=${JSON.stringify(opts)}`);
