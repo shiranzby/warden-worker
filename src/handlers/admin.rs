@@ -294,10 +294,7 @@ fn not_found() -> AppError {
 ///
 /// 返回 `is_owner` 单独给出：所有者才能在页面里看到"改角色"的控件。
 #[worker::send]
-pub async fn me(
-    State(env): State<Arc<Env>>,
-    headers: HeaderMap,
-) -> Result<Json<Value>, AppError> {
+pub async fn me(State(env): State<Arc<Env>>, headers: HeaderMap) -> Result<Json<Value>, AppError> {
     let (role, claims) = session_actor(&env, &headers).await?;
     Ok(Json(json!({
         "ok": true,

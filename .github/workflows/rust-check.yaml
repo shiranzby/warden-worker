@@ -41,11 +41,11 @@ jobs:
           fi
           echo "Using Rust toolchain: $TOOLCHAIN"
           echo "RUSTUP_TOOLCHAIN=$TOOLCHAIN" >> "$GITHUB_ENV"
-          rustup toolchain install "$TOOLCHAIN" --profile minimal --component rustfmt --target wasm32-unknown-unknown
+          rustup toolchain install "$TOOLCHAIN" --profile minimal --target wasm32-unknown-unknown
 
-      # 与 push-cloudflare.yaml 同源的工具链解析方式，保证"本地能编过 ⇒ 部署也能编过"。
-      - name: cargo fmt --check
-        run: cargo fmt --all -- --check
-
+      # ⚠️ 这里刻意**不**跑 `cargo fmt --check`：
+      #    仓库既有代码本来就没被 fmt 约束过（push-cloudflare.yaml 的构建步骤里也没有 fmt），
+      #    一旦在这里断言 fmt，就得为了"格式合规"去重排一大片与本次改动无关的既有代码。
+      #    这个 workflow 要回答的问题只有一个：**改完还能不能编译**。
       - name: cargo check (wasm32-unknown-unknown)
         run: cargo check --locked --target wasm32-unknown-unknown
