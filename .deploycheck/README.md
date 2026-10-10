@@ -143,6 +143,31 @@ python .deploycheck/check-contrast.py       # 33 通过 / 0 失败（实算前�
 ## 相关文档
 
 - 权威记录：`../docs/webvault-migration-checklist.md`（每批的改法、踩坑、上线 run、线上读数）
-- CI 侧的产物断言在 `../.github/workflows/build-web-vault.yaml`（**30 组**，不依赖本目录）
-  > 组数随批次增长：第十一批 19 → 第十八批 26 → 第二十批 28 → 第二十一批 29 → **第二十二批 30**。
+- CI 侧的产物断言在 `../.github/workflows/build-web-vault.yaml`（**31 组**，不依赖本目录）
+  > 组数随批次增长：第十一批 19 → 第十八批 26 → 第二十批 28 → 第二十一批 29 → 第二十二批 30
+  > → **第二十三批 31**。
   > 改这个数字前先 `grep -c "^          # [0-9]*)" .github/workflows/build-web-vault.yaml` 数一遍。
+  > ⚠️ 别忘同步那行 `echo "✅ 三十一项源码级定制…"` —— 它写在断言步的末尾，跟着组数一起改。
+
+## AC 段（账号管理并入设置栏目 + 角色权限）怎么验
+
+和 AB 段最大的不同：**测试通道的 `/api/admin/*` 已经改为默认反代生产**
+（`test-proxy/worker.js`，只有 `ADMIN_LOCAL=yes` 才落回打 `vault1-admin-test` 的沙箱）。
+所以测试通道验的是**和上线后完全同一份后端 + 同一个库**，而不是"另一份实现"。
+
+| 验什么 | 怎么验 | 脚本/命令 |
+|---|---|---|
+| 后端：迁移 0016、`/me` 字段、列表带 role、改角色、护栏 | 走**令牌通道**（= owner 级）直打生产 | `python .deploycheck/verify-ac-roles.py` |
+| 后端：`/api/admin/me` **只认会话** | 必须用**真实登录的浏览器会话**才验得到 | 含在下面 UI 脚本里（curl 验不了，别假装验过） |
+| 前端：入口可见性 + 页面渲染 + 窄屏形态 | 测试通道双视口截图 + 三重角色对照 | `node .deploycheck/verify-account-admin-ui.mjs` |
+
+**UI 验收的三重角色对照**（这就是本批的"负向对照"）：
+登录身份用 `WARDEN_TEST_MAIL`（= `shypwd.verify.test@qq.com`，生产里默认 `user`），
+用令牌把它依次改成 `admin` → `owner` → 再降回 `user`，每一步刷新页面断言：
+
+1. `user`    ⇒ 设置导航里**没有**「账号管理」（用户要的那条"不该给普通人看"）
+2. `admin`   ⇒ 有入口 + 页面能渲染；角色下拉**置灰**（`role_editable=false`，管理者改不了角色）
+3. `owner`   ⇒ 角色下拉**可选**（所有者才能改）
+4. 降回 `user` ⇒ 入口再次消失
+
+⇒ 终态与起点相同（`user`），不留下任何需要人记着回滚的状态。

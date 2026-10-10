@@ -1212,9 +1212,17 @@ jobs:
           done
           #   ★ 窄屏必须把表格降级成**卡片列表**(藏掉次要列), 而不是让表格横向滚动 ——
           #     规范禁止横向滚动。所以这两条要成对出现在窄屏媒体查询里:
-          #     `thead` 藏掉 + `.warden-admin-extra` 藏掉。
-          if ! grep -qF -- 'main#main-content .warden-admin-extra' .vw.css; then
-            echo "❌ 窄屏的次要列(.warden-admin-extra)没有被藏掉 —— 表格会横向溢出" >&2
+          #     `thead` 藏掉 + 次要列 <td> 藏掉。
+          #   🔴 **必须是 `td.warden-admin-extra`, 不能只写 `.warden-admin-extra`**:
+          #     同一段媒体查询里还有 `... .warden-admin-table td { display: block }`,
+          #     它的特异性是 (id1,class1,type2), 而 `.warden-admin-extra` 只有 (id1,class1,type1)
+          #     ⇒ **优先级输给它**, <td> 照样显示。AC 段上线前就是这么翻的车(实测 18 个
+          #     .warden-admin-extra 里 15 个 <td> 没藏住), 靠**运行期**断言才发现。
+          #   ⚠️ 这条 grep 只能证明"选择器字符串在产物里", **证明不了它生效** —— 改优先级时
+          #      它照样是绿的。真要守这条, 请跑 `.deploycheck/verify-account-admin-ui.mjs`
+          #      的 2b 组(数 .warden-admin-extra 的可见个数)。
+          if ! grep -qF -- 'main#main-content .warden-admin-table td.warden-admin-extra' .vw.css; then
+            echo "❌ 窄屏的次要列(td.warden-admin-extra)没有被藏掉 —— 表格会横向溢出" >&2
             fail=1
           fi
           #   ★ 负向: AC 段的段字母不能是 Y —— 「Y 段」已被第二十一批占用(那批只改了 JS,
