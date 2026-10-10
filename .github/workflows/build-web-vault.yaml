@@ -15,9 +15,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "产物标签 / artifact 名 (如 v2026.8.13)。会与源码里的版本核对, 不一致直接失败"
+        description: "产物标签 / artifact 名 (如 v2026.8.14)。会与源码里的版本核对, 不一致直接失败"
         required: true
-        default: "v2026.8.13"
+        default: "v2026.8.14"
 
 env:
   # 我们的前端源码 fork。定制已直接落在源码里(见 fork 的 shypwd 分支)。
@@ -1232,8 +1232,69 @@ jobs:
             fail=1
           fi
 
+          # 32) 第二十四批 / AD 段: 账号表的列布局与全比例适配(用户报的 1 条)
+          #     ← apps/web/src/app/settings/account-admin.component.html  (三个次要列加专属类名)
+          #       + css/vaultwarden.css                                    (AD 段)
+          #
+          #     需求原话: 「做好各比例各页面的适配 可以完整展示就完整展示 不能完整展示就把主要的保留
+          #                账号名 角色 操作是必不可少的 首行标题行与厦下面的行要稍稍不一样
+          #                但是除了第一列和最后一列，其余中间列全部均分，内容每行得居中对齐」
+          #
+          #     🔴 "均分"只能靠 `table-layout: fixed` —— 固定布局的规则是"给了宽度的列按给定值、
+          #        没给宽度的列**平分**剩余空间"; 自动布局下 `width: 1px` 那类技巧只能"按内容收缩",
+          #        收缩出来的宽度各不相同(改前实测 角色 174px vs 条目 102px)。
+          #     🔴 列的取舍必须跟**表格可用宽度**走 —— 侧栏可折叠 ⇒ 视口宽度 ≠ 可用宽度
+          #        (实测视口 860px 时可用只有 506px)。所以断言的是 `@container` 而不是 `@media`。
+          AD_CSS=('第二十四批' \
+                  'container-type: inline-size' \
+                  'table-layout: fixed' \
+                  'main#main-content .warden-admin-table td:first-child' \
+                  'main#main-content .warden-admin-table td:last-child' \
+                  '@container warden-admin (max-width: 859px)' \
+                  '@container warden-admin (max-width: 699px)' \
+                  '@container warden-admin (max-width: 619px)' \
+                  '@container warden-admin (max-width: 499px)')
+          for lit in "${AD_CSS[@]}"; do
+            grep -qF -- "${lit}" .vw.css \
+              || { echo "❌ css/vaultwarden.css 里找不到第二十四批的标记 '${lit}'" >&2; fail=1; }
+          done
+          #   阶梯必须恰好 **4 档**：多了少了都说明"列的取舍"被改坏(比如有人顺手把某档删了)。
+          AD_LADDER_N=$(grep -oF -- '@container warden-admin (max-width' .vw.css | wc -l)
+          if [ "${AD_LADDER_N}" -ne 4 ]; then
+            echo "❌ AD 段列的取舍阶梯应有 4 档, 实际 ${AD_LADDER_N} 档" >&2
+            fail=1
+          fi
+          echo "AD 段列的取舍阶梯: ${AD_LADDER_N} 档 (要求 = 4)"
+          #   ★ 三个次要列必须各有**专属类名**：只靠那个共用的 `warden-admin-extra` 的话,
+          #     宽屏就没法"按可用宽度逐个隐藏", 只能一起藏 —— 而需求要的是"能完整展示就完整展示"。
+          #     每个类名在 main.js 里应出现 2 次(<th> 与 <td> 各一份)。
+          AD_COLS=('warden-admin-col-items' 'warden-admin-col-devices' 'warden-admin-col-totp')
+          for lit in "${AD_COLS[@]}"; do
+            n=$(grep -oF -- "${lit}" .main.js | wc -l)
+            [ "${n}" -ge 2 ] \
+              || { echo "❌ main.js 里 '${lit}' 只出现 ${n} 次(<th> 与 <td> 各需一份)" >&2; fail=1; }
+          done
+          #   ★ 负向: 末列「操作」不能又被写回右对齐 —— AD 段要求中间列与末列一律居中。
+          #     判据锚在"紧跟选择器之后的第一行", 这样不会误命中文件里别处的 text-align: right。
+          if grep -A1 -F -- 'main#main-content .warden-admin-acts-col {' .vw.css \
+               | grep -qF -- 'text-align: right'; then
+            echo "❌ 操作列又被写回 text-align: right —— AD 段要求中间列与末列一律居中" >&2
+            fail=1
+          fi
+          #   ★ 负向: H7 那条 `table thead th { … !important }` 必须**排除**账号表 ——
+          #     它有 `!important`, 会把我们的表头压成 13px/500、上下内边距 6px,
+          #     于是同一张表的表头在"容器 ≥860px"与"视口 ≤768px 的表格模式"下字号与行高不一致
+          #     (设计规范把"字号不一 / 控件不等高"列为零容忍项)。
+          #     AD 段实测由 `.deploycheck/probe-ad-table.mjs` 在 560 / 640 两个视口抓到。
+          grep -qF -- 'main#main-content table:not(.warden-admin-table) thead th {' .vw.css \
+            || { echo "❌ H7 的通配表头规则没有排除账号表 —— 应写成 table:not(.warden-admin-table)" >&2; fail=1; }
+          if grep -qF -- 'main#main-content table thead th {' .vw.css; then
+            echo "❌ 仍存在未排除账号表的 'main#main-content table thead th {' 规则" >&2
+            fail=1
+          fi
+
           [ "${fail}" -eq 0 ] || exit 1
-          echo "✅ 三十一项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11 + 第七批 J6/B段 + 第八批 J16/E段 + 第九批 J15 + 第十批/N段 + 第十一批/O段 + 第十二批/P段 + 第十三批/Q段 + 第十四批/R段 + 第十五批/S段 + 第十六批/T段 + 第十七批/U段 + 第十八批/V段 + 第十九批/W段 + 第二十批/X段 + 第二十一批/Y段 + 第二十二批/AA段 + 第二十三批/AC段)均已在实际产物中得到验证"
+          echo "✅ 三十二项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11 + 第七批 J6/B段 + 第八批 J16/E段 + 第九批 J15 + 第十批/N段 + 第十一批/O段 + 第十二批/P段 + 第十三批/Q段 + 第十四批/R段 + 第十五批/S段 + 第十六批/T段 + 第十七批/U段 + 第十八批/V段 + 第十九批/W段 + 第二十批/X段 + 第二十一批/Y段 + 第二十二批/AA段 + 第二十三批/AC段 + 第二十四批/AD段)均已在实际产物中得到验证"
 
       - name: Disk space after
         if: always()

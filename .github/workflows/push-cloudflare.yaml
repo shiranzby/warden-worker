@@ -34,7 +34,7 @@ jobs:
       # - Set repository variable BW_WEB_VERSION to override
       # - Set to "latest" to follow the latest bw_web_builds release
       # - workflow_dispatch 时可用 inputs.web_version 单次覆盖（见上面的 on.workflow_dispatch.inputs）
-      BW_WEB_VERSION: ${{ inputs.web_version || vars.BW_WEB_VERSION || 'v2026.8.13' }}
+      BW_WEB_VERSION: ${{ inputs.web_version || vars.BW_WEB_VERSION || 'v2026.8.14' }}
 
       # Required for wrangler (Global API Key auth: EMAIL + API_KEY pair)
       CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
