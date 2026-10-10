@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import pathlib
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -42,25 +43,33 @@ def token() -> str:
 def api(path: str, method: str = "GET", body: dict | None = None):
     url = path if path.startswith("http") else "https://api.github.com" + path
     data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(url, data=data, method=method)
-    req.add_header("Authorization", f"Bearer {token()}")
-    req.add_header("Accept", "application/vnd.github+json")
-    req.add_header("X-GitHub-Api-Version", "2022-11-28")
-    if data:
-        req.add_header("Content-Type", "application/json")
     opener = urllib.request.build_opener(
         urllib.request.ProxyHandler({"http": PROXY, "https": PROXY})
     )
-    try:
-        with opener.open(req, timeout=60) as r:
-            raw = r.read().decode("utf-8", "replace")
-            return r.status, (json.loads(raw) if raw.strip() else {})
-    except urllib.error.HTTPError as e:
-        raw = e.read().decode("utf-8", "replace")
+    # ⚠️ 本机代理经 TLS 时**偶发** `SSLEOFError: UNEXPECTED_EOF_WHILE_READING`（2026-10-10 连中两次，
+    #    同一个 PAT 用 curl 却正常）。一次失败就判"没权限/没触发"会误导 —— 所以**要重试**。
+    last: Exception | None = None
+    for attempt in range(4):
+        req = urllib.request.Request(url, data=data, method=method)
+        req.add_header("Authorization", f"Bearer {token()}")
+        req.add_header("Accept", "application/vnd.github+json")
+        req.add_header("X-GitHub-Api-Version", "2022-11-28")
+        if data:
+            req.add_header("Content-Type", "application/json")
         try:
-            return e.code, json.loads(raw)
-        except json.JSONDecodeError:
-            return e.code, {"raw": raw[:800]}
+            with opener.open(req, timeout=60) as r:
+                raw = r.read().decode("utf-8", "replace")
+                return r.status, (json.loads(raw) if raw.strip() else {})
+        except urllib.error.HTTPError as e:
+            raw = e.read().decode("utf-8", "replace")
+            try:
+                return e.code, json.loads(raw)
+            except json.JSONDecodeError:
+                return e.code, {"raw": raw[:800]}
+        except Exception as e:  # URLError / SSLError / 超时
+            last = e
+            time.sleep(1.5 * (attempt + 1))
+    raise SystemExit(f"❌ 4 次重试后仍无法访问 GitHub API: {last!r}")
 
 
 def check_owner(obj, expect_repo: str) -> None:

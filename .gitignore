@@ -175,6 +175,13 @@ sql/global_domains_seed.sql
 #     (user→admin→owner→user) + `GET /api/admin/me`「只认会话」的实证 + 双视口截图。
 #     ⚠️ 它抓到过一条 CI 静态 grep 完全无感的 CSS 优先级 bug(窄屏次要列没藏掉) —— 别删。
 #     入库前已按上面的扫描命令跑过: 0 命中(凭据全部从环境变量/.env.local 读)。
+!.deploycheck/extract-asserts.py
+#   ↑ 把 build-web-vault.yaml 里 "Verify our customizations…" 那一步的 bash **原样抽出来**
+#     写成 .deploycheck/artifact-asserts.sh, 好在**本地产物**上复跑 CI 的全部断言 ——
+#     本机拉 job 日志常被重置(urllib 10054 / curl 56), 靠日志定位 FAIL 不可靠。
+#     产物目录需含 bw_web_vault.tar.gz + .vault-contents.txt(见脚本 docstring)。
+#     抽出来的 .sh 是**派生物**, 不单独入库。
+#     (无凭据, 只有正则与文件读写; 仓库是 public 也没问题。)
 
 # shytest.cc.cd 测试通道的静态资源目录 = 前端 build 去掉 *.map 的副本(258 文件 / 73MB)。
 # 是纯构建产物且体积巨大, 不入库 —— 需要时按 test-proxy/wrangler.test.toml 顶部的命令重新打。

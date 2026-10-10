@@ -30,6 +30,11 @@
  * 用法:
  *   node .deploycheck/verify-account-admin-ui.mjs
  *   AC_UI_BASE=https://test.shytest.cc.cd node .deploycheck/verify-account-admin-ui.mjs
+ *   # 生产复验：**两个变量都要给**。`WARDEN_TEST_BASE` 是 b8-lib 里 `login()` 真正 goto 的地址
+ *   # （b8-lib 在模块顶层把它读成常量），`AC_UI_BASE` 只是本脚本自己的断言基准。
+ *   # ⚠️ 只给 AC_UI_BASE 会变成"在测试通道登录、按生产地址断言" ⇒ `ERR_TIMED_OUT` 或串台。
+ *   AC_UI_BASE=https://shypwd.cc.cd WARDEN_TEST_BASE=https://shypwd.cc.cd \
+ *     AC_SHOTS=<另开一个目录> node .deploycheck/verify-account-admin-ui.mjs
  * 退出码：有 FAIL 就是 1。
  */
 import { execFileSync } from "node:child_process";
@@ -56,7 +61,10 @@ const UA =
   "Chrome/131.0.0.0 Safari/537.36";
 /** 本机**直连 Cloudflare 边缘会被 TLS reset**（curl 打 test 通道返回 000），浏览器同样要挂代理。 */
 const PROXY = /localhost|127\.0\.0\.1/.test(BASE) ? "" : "http://127.0.0.1:7890";
-const SHOTS = path.resolve(import.meta.dirname, "shots", "ac-roles");
+/** 截图目录。生产复验时用 `AC_SHOTS=...` 另开一个，**别覆盖测试通道那份证据**。 */
+const SHOTS = process.env.AC_SHOTS
+  ? path.resolve(process.env.AC_SHOTS)
+  : path.resolve(import.meta.dirname, "shots", "ac-roles");
 
 /** 生产库里的账号表 —— 验收需要一个稳定的 id，而 id 是 uuid，只能查出来。 */
 const PROD = "https://shypwd.cc.cd";
@@ -298,7 +306,7 @@ async function shot(name, w, h) {
 
 /* ---------------------------------- 开跑 ---------------------------------- */
 
-console.log("\n========== AC 段 UI 验收（测试通道）==========");
+console.log(`\n========== AC 段 UI 验收（${BASE}）==========`);
 
 const all = users();
 const target = all.find((u) => u.email === MAIL);
@@ -500,6 +508,12 @@ group("2. 提为 admin —— 入口出现，但改不了角色");
     check("最后一项没有超出容器右边界",
       g && g.lastRight !== null && g.lastRight <= g.navRight + 1,
       `lastRight=${g?.lastRight} navRight=${g?.navRight}`);
+    // ⚠️ 拍照前先证明"页面真的切过去了" —— 否则可能拍到上一张的**假帧**。
+    //    实测 `admin-mobile-settings-390.png` 与 `admin-mobile-subnav-390.png` 曾是**逐字节相同**：
+    //    因为 390 宽时首屏只显示"顶栏 + chips 行"，两个子页在这块区域**长得一样**。
+    //    所以光比 sha256 判定不了假帧，**要靠这条 hash 断言**把"状态已经变了"钉住。
+    const h = await page.evaluate(() => location.hash);
+    check("拍照前页面已在 #/settings/account", h.startsWith("#/settings/account"), `hash=${h}`);
     await shot("admin-mobile-subnav", 390, 844);
   }
 }
