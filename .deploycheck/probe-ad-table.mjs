@@ -190,7 +190,10 @@ await clickSkips(page); // 进页面后偶尔还会再弹一次
 await sleep(1200);
 
 const snapshots = [];
-const SHOT_DIR = path.resolve(import.meta.dirname, "shots", "ad-table");
+// 截图目录。生产复验时用 `AC_SHOTS=...` 另开一个，**别覆盖测试通道那份证据**。
+const SHOT_DIR = process.env.AC_SHOTS
+  ? path.resolve(process.env.AC_SHOTS)
+  : path.resolve(import.meta.dirname, "shots", "ad-table");
 fs.mkdirSync(SHOT_DIR, { recursive: true });
 for (const w of WIDTHS) {
   await page.setViewportSize({ width: w, height: 900 });
