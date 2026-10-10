@@ -20,8 +20,16 @@
  *    最坏情况是实时同步不工作（页面仍可用），MVP 阶段可接受。
  *
  * === 管理台安全边界（改这个文件前先读这段）===
- * · 鉴权只有一条：请求头 `X-Admin-Token` 必须等于服务端 `ADMIN_TOKEN`（wrangler secret，
- *   不在仓库里）。比较用常数字节比较，避免时序侧信道。
+ * · **默认：`/api/admin/*` 也反代到生产**（AC 段起的默认值）。
+ *   为什么改了：AC 段之前生产**还没有**这些路由，所以必须由本文件自己实现一份；
+ *   现在生产有了，再自己实现一份就等于"测试通道验证的是另一份逻辑" ——
+ *   同样的输入、不同的实现，"测试通过"证明不了生产的行为。
+ *   反代之后测试通道与生产是**同一份后端 + 同一个库**，前端验收才真的有说服力。
+ * · 本文件里的 `handleAdmin()` **保留**，由 `ADMIN_LOCAL=yes` 打开：那是 AB 段留下的
+ *   **安全沙箱**（打独立测试库），需要在"绝不碰生产"的前提下演练破坏性操作
+ *   （删除账号、批量停用……）时用它。
+ * · 沙箱模式的鉴权只有一条：请求头 `X-Admin-Token` 必须等于服务端 `ADMIN_TOKEN`
+ *   （wrangler secret，不在仓库里）。比较用常数字节比较，避免时序侧信道。
  * · **写操作护栏**：`ADMIN_ENV` 不等于 `test` 时必须显式给 `ADMIN_ALLOW_PROD=yes` 才放行，
  *   防止这份"测试台"哪天被误配到生产库上。
  * · 这里**不可能**解密任何账号的条目明文 —— 库里的 name/username/password/totp 全是密文，
@@ -36,8 +44,14 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    // ① 管理台 API —— 必须先于反代判断，否则会被代理到生产站
-    if (url.pathname === ADMIN_PREFIX || url.pathname.startsWith(ADMIN_PREFIX + "/")) {
+    // ① 管理台 API —— **默认反代到生产**（走到下面的 ② 分支），与生产同一份后端逻辑 + 同一个库，
+    //    这样"测试通道里验过"才真的能说明生产的行为。
+    //    只有显式设了 ADMIN_LOCAL=yes 才落到本文件里的 handleAdmin()（AB 段留下的**安全沙箱**，
+    //    打独立测试库 vault1-admin-test）—— 需要在"绝不碰生产"的前提下演练破坏性操作时用它。
+    if (
+      env.ADMIN_LOCAL === "yes" &&
+      (url.pathname === ADMIN_PREFIX || url.pathname.startsWith(ADMIN_PREFIX + "/"))
+    ) {
       return handleAdmin(request, env, url);
     }
 
