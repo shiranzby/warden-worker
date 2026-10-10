@@ -107,4 +107,11 @@ pub async fn scheduled(_event: ScheduledEvent, env: Env, _ctx: ScheduleContext) 
         "expired auth requests",
         handlers::purge::purge_expired_auth_requests(&env).await,
     );
+    // 账号管理台的有效期：到期的账号在这里被**停用**（不删除）。
+    // 登录侧还有一道"实时"兜底（models::user::is_login_blocked），
+    // 所以这条 cron 的职责是把 disabled_at 落成可审计的事实，而不是唯一的防线。
+    log_purge_result(
+        "expired admin accounts",
+        handlers::admin::disable_expired_accounts(&env).await,
+    );
 }

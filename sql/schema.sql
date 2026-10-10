@@ -21,6 +21,10 @@ CREATE TABLE IF NOT EXISTS users (
     equivalent_domains TEXT NOT NULL DEFAULT '[]', -- JSON: Vec<Vec<String>>
     excluded_globals TEXT NOT NULL DEFAULT '[]', -- JSON: Vec<i32> (reserved for future global groups)
     totp_recover TEXT, -- Recovery code for 2FA
+    -- 账号管理台用的两个生命周期列（见 migrations/0015_add_admin_fields.sql）。
+    -- 两者都为 NULL 时表示"永不过期、未被停用"——即既有的全部账号的默认状态。
+    expires_at TEXT,   -- ISO8601；到期后由每日 cron 置上 disabled_at（不做静默删除）
+    disabled_at TEXT,  -- ISO8601；非 NULL 即拒绝登录
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );

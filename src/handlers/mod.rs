@@ -1,4 +1,5 @@
 pub mod accounts;
+pub mod admin;
 pub mod attachments;
 pub mod auth_requests;
 pub mod ciphers;

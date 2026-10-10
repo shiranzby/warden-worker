@@ -194,6 +194,23 @@ jobs:
       # fork 源码 shiranzby/vw_web_builds@shypwd, 产物自带, 故 custom/ 与注入步骤一并退役。
       # 上面那条 "Verify frontend is our patched build" 已加负向守卫, 防止注入层被写回来。
 
+      # 账号管理台：**免构建的单文件页**，直接与前端产物一起发布到 public/web-vault/admin/。
+      # 为什么不做成前端的一个路由：它跟 Bitwarden 的 Angular 应用没有任何关系（没有共享
+      # 组件/状态/路由），而且刻意要能在"密码库本身打不开"时也能用；放进 Angular 构建会把
+      # 一个 32KB 的静态页绑死在一套 5 分钟的构建链上。
+      # 后续如果前端也长出一份同名页面，这里会是唯一真源。
+      - name: Add account admin console (single-file page)
+        run: |
+          set -euo pipefail
+          [ -f admin/index.html ] || { echo "❌ 缺少 admin/index.html" >&2; exit 1; }
+          # 硬校验：页面必须自带 [hidden] 兜底，否则"隐藏"元素会被 display 类压回来（见页面内注释）
+          grep -q '\[hidden\][[:space:]]*{[[:space:]]*display:[[:space:]]*none[[:space:]]*!important' admin/index.html || {
+            echo "❌ admin/index.html 缺少 [hidden]{display:none !important} 兜底规则" >&2; exit 1; }
+          mkdir -p public/web-vault/admin
+          cp admin/index.html public/web-vault/admin/index.html
+          ls -la public/web-vault/admin/
+          echo "✅ 管理台已就位：public/web-vault/admin/index.html"
+
       - name: Replace D1_DATABASE_ID in wrangler.toml
         run: sed -i "s/\${D1_DATABASE_ID}/${{ secrets.D1_DATABASE_ID }}/g" wrangler.toml
 

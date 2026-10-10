@@ -319,6 +319,9 @@ pub async fn register(
         equivalent_domains: "[]".to_string(),
         excluded_globals: "[]".to_string(),
         totp_recover: None,
+        // 新注册账号默认永不过期、未停用（迁移 0015 的两列在 INSERT 里不出现 ⇒ 落库即 NULL）。
+        expires_at: None,
+        disabled_at: None,
         created_at: now.clone(),
         updated_at: now,
     };

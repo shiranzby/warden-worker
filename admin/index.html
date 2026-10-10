@@ -1,0 +1,857 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="light dark" />
+<meta name="robots" content="noindex,nofollow" />
+<title>账号管理台 · shypwd</title>
+<style>
+/* ============================================================================
+   令牌块
+   本页是**免构建单文件**（同一份文件要同时给测试通道的 assets 与生产 Worker 的
+   public/web-vault 用，走不了打包流程），所以把令牌集中在这一个 :root 里。
+   除本块外，全页只引用 var(--*)，不出现颜色字面量与裸 px（豁免清单见下）。
+   豁免：发丝线 0.5px、图标自身的 stroke-width、clamp()/minmax() 的极值。
+   ============================================================================ */
+:root {
+  color-scheme: light dark;
+
+  /* 字号刻度（11 级） */
+  --fs-large-title: 34px; --fs-title1: 28px; --fs-title2: 22px; --fs-title3: 20px;
+  --fs-headline: 17px; --fs-body: 17px; --fs-callout: 16px; --fs-subheadline: 15px;
+  --fs-footnote: 13px; --fs-caption1: 12px; --fs-caption2: 11px;
+
+  /* 间距（8pt 网格） */
+  --s1: 4px; --s2: 8px; --s3: 16px; --s4: 24px; --s5: 32px; --s6: 40px; --s7: 48px;
+
+  /* 高度令牌 */
+  --tap: 44px; --h-bar: 44px; --h-control: 36px; --h-list-row: 44px;
+
+  /* 圆角 */
+  --radius-sm: 8px; --radius: 10px; --radius-lg: 14px; --radius-xl: 20px; --radius-pill: 980px;
+
+  /* 动效 */
+  --dur-fast: 180ms; --dur: 280ms; --dur-slow: 420ms;
+  --spring: cubic-bezier(.32,.72,0,1);
+
+  /* 图标 */
+  --icon-sm: 15px; --icon: 18px; --icon-lg: 22px;
+
+  /* 层级 */
+  --z-content: 1; --z-popover: 45; --z-sheet: 50; --z-modal: 60;
+
+  /* 字号/字距 */
+  --lh-tight: 1.2; --lh-body: 1.45;
+  --ls-tight: -0.022em; --ls-body: -0.011em;
+
+  /* ---------------- 浅色 ----------------
+     ⚠️ 灰阶令牌的**不透明度是算出来的，不是凭感觉调出来的**（§2.3 硬指标）。
+     本页的次要文字全都是 12–15px（< 18px）⇒ 必须 ≥ 4.5:1，且规范明说"包含次要文字"。
+     第一版照抄 iOS 的 .62/.38，实算只有 3.62:1 / 2.05:1 —— 全线不达标，已按下面取值修正。
+     校验命令：python .deploycheck/check-contrast.py                                    */
+  --bg: #F2F2F7;
+  --bg-2: #FFFFFF;
+  --bg-3: #F2F2F7;
+  --label: #1C1C1E;
+  --label-2: rgba(60,60,67,.74);  /* 白底 5.02:1 / 页面灰 4.72:1 / fill 底 4.57:1 */
+  --label-3: rgba(60,60,67,.55);  /* 只给**非文字**（图标 3.03:1）；文字一律用 label-2 */
+  --label-4: rgba(60,60,67,.20);  /* 只给发丝线/禁用底，不承载文字 */
+  --fill: rgba(120,120,128,.08);
+  --fill-3: rgba(120,120,128,.14);
+  --separator: rgba(60,60,67,.22);
+  --separator-opaque: #D8D8DC;
+  --brand: #0A84FF;
+  --brand-solid: #0B63CE;      /* 白字对比 5.69:1 */
+  --brand-text: #0A5FBF;       /* 浅淡 brand 底上的**文字**用（5.34:1）；--brand 只给图标/链接 */
+  --brand-soft: rgba(10,132,255,.12);
+  --on-brand: #FFFFFF;
+  --success: #1F7A36;          /* ok-soft 底 4.81:1；白字于实底 5.39:1 */
+  --warn: #8A5200;
+  --danger: #C40014;           /* 白底对比 6.26:1 */
+  --danger-solid: #C40014;
+  --danger-soft: rgba(196,0,20,.10);
+  --overlay: rgba(0,0,0,.34);
+  --shadow: 0 10px 32px rgba(0,0,0,.16);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.10);
+  --disabled-opacity: .38;
+  --focus: 0 0 0 3px rgba(10,132,255,.45);
+  --warn-soft: rgba(255,159,10,.16);
+  --ok-soft: rgba(52,199,89,.14);
+  /* 布局宽度上限（内容最大宽，不是"硬编码控件宽度"） */
+  --w-content: 1200px;
+  --w-gate: 420px;
+  --w-sheet: 560px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #000000;
+    --bg-2: #1C1C1E;
+    --bg-3: #2C2C2E;
+    --label: #FFFFFF;
+    --label-2: rgba(235,235,245,.62);  /* 深底 6.26:1 ✅ 无需改 */
+    --label-3: rgba(235,235,245,.45);  /* 只给非文字（3.94:1） */
+    --label-4: rgba(235,235,245,.20);
+    --fill: rgba(120,120,128,.16);
+    --fill-3: rgba(120,120,128,.26);
+    --separator: rgba(84,84,88,.65);
+    --separator-opaque: #38383A;
+    --brand: #0A84FF;
+    --brand-solid: #0A84FF;      /* 白字 3.65:1 —— 按钮文字 16px/600 属"大字"，标准是 3:1 */
+    --brand-text: #4EA1FF;       /* 深色下浅淡 brand 底上的文字（4.84:1）；--brand 在暗底只有 3.54:1 */
+    --brand-soft: rgba(10,132,255,.22);
+    --on-brand: #FFFFFF;
+    --success: #30D158;          /* ok-soft 底 5.94:1 */
+    --warn: #FFD60A;
+    --danger: #FF5F52;           /* danger-soft 底 4.61:1（原 #FF453A 只有 4.05:1） */
+    --danger-solid: #D70015;
+    --danger-soft: rgba(255,69,58,.18);
+    --overlay: rgba(0,0,0,.58);
+    --shadow: 0 10px 32px rgba(0,0,0,.62);
+    --shadow-sm: 0 1px 3px rgba(0,0,0,.5);
+    --focus: 0 0 0 3px rgba(10,132,255,.55);
+    --warn-soft: rgba(255,214,10,.18);
+    --ok-soft: rgba(48,209,88,.18);
+  }
+}
+
+/* ---------------------------- 基础 ---------------------------- */
+*, *::before, *::after { box-sizing: border-box; }
+/**
+ * ⚠️ 这一行**必须有**，不是可有可无的重置。
+ *
+ * `hidden` 属性靠 UA 样式表的 `[hidden] { display: none }` 生效，而它的权重是 (0,1,0)；
+ * 本页的 `.gate { display: grid }` / `.empty { display: flex }` 同为 (0,1,0) 但**在作者表里**，
+ * 于是**压掉** UA 的 `display:none` —— `el.hidden = true` 只改了属性，元素照样画在页面上。
+ * 症状：仪表盘顶上**叠着一整个令牌门**（第一版真事），而断言读的是 `el.hidden`
+ * （属性确实是 true）⇒ 检查全绿、肉眼才发现。
+ * 判据必须改成"渲染可见性"（computed display + 几何），见 `.deploycheck/probe-admin-ui.mjs` 的 A9 负向对照。
+ */
+[hidden] { display: none !important; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--label);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue",
+               "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  letter-spacing: var(--ls-body);
+  -webkit-font-smoothing: antialiased;
+}
+h1, h2, h3 { margin: 0; line-height: var(--lh-tight); letter-spacing: var(--ls-tight); }
+p { margin: 0; }
+button { font: inherit; letter-spacing: inherit; }
+code, .mono {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+:focus-visible { outline: none; box-shadow: var(--focus); border-radius: var(--radius-sm); }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+
+/* ---------------------------- 顶栏 ---------------------------- */
+.topbar {
+  position: sticky; top: 0; z-index: var(--z-popover);
+  background: var(--bg-2);
+  border-bottom: .5px solid var(--separator);
+  padding-top: env(safe-area-inset-top);
+}
+.topbar-inner {
+  display: flex; align-items: center; gap: var(--s3);
+  min-height: var(--h-bar);
+  max-width: var(--w-content); margin: 0 auto;
+  padding: var(--s2) var(--s3);
+}
+.brand { display: flex; align-items: center; gap: var(--s2); min-width: 0; }
+.brand-mark {
+  flex: none; display: grid; place-items: center;
+  width: var(--tap); height: var(--tap);
+  border-radius: var(--radius); background: var(--brand-soft); color: var(--brand);
+}
+.brand h1 { font-size: var(--fs-headline); font-weight: 600; }
+.brand .sub {
+  font-size: var(--fs-caption1); color: var(--label-2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.env {
+  margin-left: auto; flex: none;
+  font-size: var(--fs-caption1); font-weight: 600;
+  padding: var(--s1) var(--s2); border-radius: var(--radius-pill);
+  background: var(--fill-3); color: var(--label-2);
+}
+.env[data-env="prod"] { background: var(--brand-soft); color: var(--brand-text); }
+
+/* ---------------------------- 主体 ---------------------------- */
+main { max-width: var(--w-content); margin: 0 auto; padding: var(--s3) var(--s3) var(--s7); }
+@media (min-width: 768px) { main { padding: var(--s4) var(--s4) var(--s7); } }
+
+/* ---------------------------- 令牌门 ---------------------------- */
+.gate { display: grid; place-items: center; min-height: 60dvh; }
+.gate-card {
+  width: 100%; max-width: var(--w-gate);
+  background: var(--bg-2); border-radius: var(--radius-xl);
+  padding: var(--s4); box-shadow: var(--shadow-sm);
+  display: flex; flex-direction: column; gap: var(--s3);
+}
+.gate-card h2 { font-size: var(--fs-title3); font-weight: 600; }
+.gate-card .hint { font-size: var(--fs-subheadline); color: var(--label-2); }
+.field { display: flex; flex-direction: column; gap: var(--s2); }
+.field > span { font-size: var(--fs-footnote); color: var(--label-2); }
+input[type="password"], input[type="text"], input[type="number"], input[type="datetime-local"] {
+  width: 100%; min-height: var(--h-control); padding: 0 var(--s3);
+  font-size: var(--fs-callout); color: var(--label);
+  background: var(--bg-3);
+  border: 1px solid transparent; border-radius: var(--radius);
+  transition: border-color var(--dur-fast) var(--spring);
+}
+input:focus { border-color: var(--brand); outline: none; }
+.err { font-size: var(--fs-footnote); color: var(--danger); }
+
+/* ---------------------------- 按钮（三级） ---------------------------- */
+.btn-filled, .btn-tinted, .btn-plain, .btn-danger {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--s2);
+  min-height: var(--h-control); min-width: var(--tap);
+  padding: 0 var(--s3);
+  font-size: var(--fs-callout); font-weight: 600;
+  /* ⚠️ 按钮文字**永不折行**：表格「操作」列只有 79px，按钮被 min-width:var(--tap) 压到 44px，
+     文字 30px 挤不进 28px 的内容区 ⇒「管理」被拆成上下两行（768 档实测）。
+     nowrap 后按钮取 46px，列宽仍够；挤不下时由可换行的「账号」列让位。 */
+  white-space: nowrap;
+  border: none; border-radius: var(--radius-pill); cursor: pointer;
+  transition: transform var(--dur-fast) var(--spring), background var(--dur-fast) var(--spring),
+              opacity var(--dur-fast) var(--spring);
+}
+.btn-filled { background: var(--brand-solid); color: var(--on-brand); }
+.btn-tinted { background: var(--fill-3); color: var(--label); }
+.btn-plain  { background: transparent; color: var(--brand); padding: 0 var(--s2); }
+.btn-danger { background: var(--danger-solid); color: var(--on-brand); }
+.btn-filled:active, .btn-tinted:active, .btn-plain:active, .btn-danger:active { transform: scale(.96); }
+.btn-filled:disabled, .btn-tinted:disabled, .btn-plain:disabled, .btn-danger:disabled {
+  opacity: var(--disabled-opacity); cursor: not-allowed;
+}
+.btn-block { width: 100%; }
+
+/* ---------------------------- 统计卡 ---------------------------- */
+.stats {
+  display: grid; gap: var(--s3); margin-bottom: var(--s4);
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+.stat {
+  background: var(--bg-2); border-radius: var(--radius-lg);
+  padding: var(--s3); display: flex; flex-direction: column; gap: var(--s1);
+}
+.stat .k { font-size: var(--fs-caption1); color: var(--label-2); }
+.stat .v {
+  font-size: var(--fs-title1); font-weight: 700; letter-spacing: var(--ls-tight);
+  font-variant-numeric: tabular-nums;
+}
+.stat .u { font-size: var(--fs-caption1); color: var(--label-2); }
+
+/* ---------------------------- 面板 / 表格 ---------------------------- */
+.panel { background: var(--bg-2); border-radius: var(--radius-lg); overflow: hidden; }
+.panel-head {
+  display: flex; align-items: center; gap: var(--s2);
+  padding: var(--s3); border-bottom: .5px solid var(--separator);
+}
+.panel-head h2 { font-size: var(--fs-headline); font-weight: 600; margin-right: auto; }
+.panel-head .count { font-size: var(--fs-footnote); color: var(--label-2); font-weight: 400; }
+
+table { width: 100%; border-collapse: collapse; }
+thead th {
+  text-align: left; font-size: var(--fs-caption1); font-weight: 600; color: var(--label-2);
+  padding: var(--s2) var(--s3); border-bottom: .5px solid var(--separator);
+  white-space: nowrap;
+}
+tbody td {
+  padding: var(--s2) var(--s3); border-bottom: .5px solid var(--separator);
+  font-size: var(--fs-subheadline); vertical-align: middle;
+}
+tbody tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: var(--fill); }
+td.num { font-variant-numeric: tabular-nums; color: var(--label-2); white-space: nowrap; }
+/* 创建时间**允许折行**：它是唯一一个"长且不可断"的数值列，
+   在 768px 档上正是它把表格的最小宽度顶到超过面板宽度 ⇒ 最后一列「操作」被裁掉。
+   允许折行后最小宽度骤降，768 也能完整放下（判据见 probe-admin-ui.mjs 的 F 段）。 */
+td.num.created { white-space: normal; }
+td.email { font-weight: 500; overflow-wrap: anywhere; }
+.cell-sub { display: block; font-size: var(--fs-caption1); color: var(--label-2); }
+
+/* 状态徽章 */
+.badge {
+  display: inline-flex; align-items: center; gap: var(--s1);
+  font-size: var(--fs-caption1); font-weight: 600;
+  padding: 2px var(--s2); border-radius: var(--radius-pill);
+  background: var(--fill-3); color: var(--label-2); white-space: nowrap;
+}
+.badge.on   { background: var(--brand-soft); color: var(--brand-text); }
+.badge.warn { background: var(--warn-soft); color: var(--warn); }
+.badge.off  { background: var(--danger-soft); color: var(--danger); }
+.badge.ok   { background: var(--ok-soft); color: var(--success); }
+
+/* 空状态（三段式） */
+.empty { display: flex; flex-direction: column; align-items: center; gap: var(--s2); padding: var(--s6) var(--s4); text-align: center; }
+.empty .ico { color: var(--label-3); }
+.empty h3 { font-size: var(--fs-headline); font-weight: 600; }
+.empty p { font-size: var(--fs-subheadline); color: var(--label-2); max-width: 36ch; }
+
+/* ---------------------------- 移动端：表格 → 卡片 ---------------------------- */
+@media (max-width: 767px) {
+  thead { display: none; }
+  table, tbody, tr, td { display: block; width: 100%; }
+  tbody tr {
+    padding: var(--s3); border-bottom: .5px solid var(--separator);
+  }
+  tbody tr:last-child { border-bottom: none; }
+  tbody td { border: none; padding: var(--s1) 0; display: flex; gap: var(--s3); align-items: baseline; }
+  tbody td::before {
+    content: attr(data-label);
+    flex: none; width: 5.5em;
+    font-size: var(--fs-caption1); color: var(--label-2);
+  }
+  td.email { padding-bottom: var(--s2); font-size: var(--fs-headline); }
+  td.email::before { display: none; }
+  td.actions { margin-top: var(--s2); }
+  td.actions::before { display: none; }
+}
+
+/* ---------------------------- 弹窗 ---------------------------- */
+/**
+ * ⚠️ `max-height` + 可滚动的 `.sheet-body` 不是装饰，是**能不能用到**的问题。
+ * 不写这两行时：详情面板内容高度 > 视口高度（390×844 上约 900px）时，
+ * 弹窗被 UA 的 max-height 夹住、内容**溢出到视口外且无处可滚** ⇒
+ * 底部「删除账号及其密码库」在手机上**永远够不到**（第一版实测 390 视口复现）。
+ * 判据：probe-admin-ui.mjs 的 F 段会滚到底并断言删除按钮真的落进视口。
+ */
+dialog {
+  padding: 0; border: none; background: transparent;
+  max-width: min(var(--w-sheet), calc(100vw - var(--s4)));
+  max-height: calc(100dvh - var(--s4));
+  width: 100%;
+}
+dialog::backdrop { background: var(--overlay); }
+.sheet {
+  background: var(--bg-2); border-radius: var(--radius-xl);
+  box-shadow: var(--shadow); overflow: hidden;
+  display: flex; flex-direction: column;
+  max-height: calc(100dvh - var(--s4));
+}
+.sheet-head {
+  flex: none;
+  display: flex; align-items: center; gap: var(--s2);
+  padding: var(--s3) var(--s3) var(--s2);
+  border-bottom: .5px solid var(--separator);
+}
+.sheet-head h2 { font-size: var(--fs-headline); font-weight: 600; margin-right: auto; }
+/* `min-height:0` 让它在 flex 列里**真的能被压缩**（否则仍是内容高度、overflow 不生效） */
+.sheet-body { flex: 0 1 auto; min-height: 0; overflow-y: auto; padding: var(--s3); display: flex; flex-direction: column; gap: var(--s3); }
+.sheet-foot {
+  flex: none;
+  display: flex; gap: var(--s2); justify-content: flex-end;
+  padding: var(--s3); border-top: .5px solid var(--separator);
+  flex-wrap: wrap;
+}
+.kv { display: grid; grid-template-columns: 5.5em 1fr; gap: var(--s1) var(--s3); font-size: var(--fs-subheadline); }
+.kv dt { color: var(--label-2); font-size: var(--fs-footnote); }
+.kv dd { margin: 0; overflow-wrap: anywhere; }
+.ops { display: flex; flex-direction: column; gap: var(--s2); }
+.op-group { display: flex; flex-direction: column; gap: var(--s2); }
+.op-group > h3 { font-size: var(--fs-caption1); color: var(--label-2); font-weight: 600; }
+.op-row { display: flex; gap: var(--s2); flex-wrap: wrap; }
+.op-row .btn-tinted, .op-row .btn-danger { flex: 1 1 auto; }
+/* 天数是 1–4 位数字 + 左右各 16px 内边距，按内容定宽，不用 px（§4.3） */
+.w-days { max-width: 12ch; flex: none; }
+.note { font-size: var(--fs-footnote); color: var(--label-2); }
+.note.danger { color: var(--danger); }
+
+/* ---------------------------- Toast ---------------------------- */
+#toast {
+  position: fixed; left: 50%; bottom: calc(var(--s5) + env(safe-area-inset-bottom));
+  transform: translate(-50%, var(--s4));
+  z-index: var(--z-modal);
+  display: flex; align-items: center; gap: var(--s2);
+  max-width: calc(100vw - var(--s4));
+  padding: var(--s2) var(--s4);
+  border-radius: var(--radius-pill);
+  background: var(--label); color: var(--bg-2);
+  font-size: var(--fs-subheadline);
+  box-shadow: var(--shadow);
+  opacity: 0; pointer-events: none;
+  transition: opacity var(--dur) var(--spring), transform var(--dur) var(--spring);
+}
+#toast.show { opacity: 1; transform: translate(-50%, 0); }
+#toast[data-kind="error"] { background: var(--danger-solid); color: var(--on-brand); }
+#toast[data-kind="ok"] { background: var(--success); color: var(--on-brand); }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3l7 3v5c0 4.5-3 8.2-7 10-4-1.8-7-5.5-7-10V6l7-3z"/>
+          <path d="M9.5 12.2l1.8 1.8 3.4-3.6"/>
+        </svg>
+      </span>
+      <div style="min-width:0">
+        <h1>账号管理台</h1>
+        <p class="sub">只能看元数据 · 服务端读不到任何密码库明文</p>
+      </div>
+    </div>
+    <span class="env" id="envTag" hidden></span>
+  </div>
+</header>
+
+<main>
+  <!-- ① 令牌门 -->
+  <section class="gate" id="gate">
+    <div class="gate-card">
+      <h2>需要一个管理令牌</h2>
+      <p class="hint">
+        令牌来自服务端的 <code>ADMIN_TOKEN</code>。它只保存在这台设备的
+        <code>sessionStorage</code> 里，关掉标签页即失效，不会被写进任何 cookie。
+      </p>
+      <label class="field">
+        <span>管理令牌</span>
+        <input type="password" id="tokenInput" autocomplete="off" spellcheck="false"
+               placeholder="粘贴令牌" aria-describedby="gateErr" />
+      </label>
+      <p class="err" id="gateErr" role="alert" hidden></p>
+      <button class="btn-filled btn-block" id="gateBtn" type="button">进入管理台</button>
+    </div>
+  </section>
+
+  <!-- ② 控制台 -->
+  <section id="dash" hidden>
+    <div class="stats" id="stats" aria-live="polite"></div>
+    <div class="panel">
+      <div class="panel-head">
+        <h2>全部账号 <span class="count" id="userCount"></span></h2>
+        <button class="btn-tinted" id="refreshBtn" type="button">刷新</button>
+        <button class="btn-plain" id="signOutBtn" type="button">退出</button>
+      </div>
+      <div id="tableWrap">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">账号</th>
+              <th scope="col">条目</th>
+              <th scope="col">设备</th>
+              <th scope="col">两步验证</th>
+              <th scope="col">状态</th>
+              <th scope="col">创建</th>
+              <th scope="col">操作</th>
+            </tr>
+          </thead>
+          <tbody id="userRows"></tbody>
+        </table>
+      </div>
+      <div class="empty" id="emptyState" hidden>
+        <span class="ico" aria-hidden="true">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="8" r="3.4"/><path d="M5 20c0-3.4 3.1-5.4 7-5.4s7 2 7 5.4"/>
+          </svg>
+        </span>
+        <h3>还没有账号</h3>
+        <p>这个实例上还没有人注册。注册入口在密码库首页的「创建账户」。</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- 账号详情与操作 -->
+<dialog id="detailDlg" aria-labelledby="detailTitle">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h2 id="detailTitle">账号</h2>
+      <button class="btn-plain" id="detailClose" type="button" aria-label="关闭">关闭</button>
+    </div>
+    <div class="sheet-body">
+      <dl class="kv" id="detailKv"></dl>
+      <div class="ops">
+        <div class="op-group">
+          <h3>会话</h3>
+          <div class="op-row">
+            <button class="btn-tinted" id="opSignOut" type="button">踢下线（所有设备）</button>
+          </div>
+          <p class="note">轮换该账号的安全戳并清空其设备记录，已登录的 App 与网页会立即失效。</p>
+        </div>
+        <div class="op-group">
+          <h3>两步验证</h3>
+          <div class="op-row">
+            <button class="btn-tinted" id="opReset2fa" type="button">重置两步验证</button>
+          </div>
+          <p class="note">删掉该账号的 TOTP 与恢复码。⚠️ 无法恢复原密钥，对方需重新绑定。</p>
+        </div>
+        <div class="op-group">
+          <h3>有效期</h3>
+          <div class="op-row">
+            <input type="number" id="expireDays" class="w-days" min="1" max="3650" value="7"
+                   aria-label="到期天数" />
+            <button class="btn-tinted" id="opExpire" type="button">设为 N 天后到期</button>
+            <!-- ⚠️ 原本是 `btn-plain`：在 390 上它会单独折到第二行、左对齐的粗体蓝字，
+                 看起来像**小节标题**而不是按钮 ⇒ 换成与同排「设为 N 天后到期」同级的 tinted。 -->
+            <button class="btn-tinted" id="opExpireClear" type="button">取消到期</button>
+          </div>
+          <p class="note">到期后该账号会在每日清理任务中被停用（不做静默删除）。</p>
+        </div>
+        <div class="op-group">
+          <h3>状态</h3>
+          <div class="op-row">
+            <button class="btn-tinted" id="opToggleDisable" type="button">停用</button>
+          </div>
+          <p class="note">停用只影响该账号本身，不会动它的任何数据。</p>
+        </div>
+        <div class="op-group">
+          <h3 style="color:var(--danger)">危险操作</h3>
+          <div class="op-row">
+            <button class="btn-danger" id="opDelete" type="button">删除账号及其密码库</button>
+          </div>
+          <p class="note danger">不可撤销。会连同条目、附件、设备一起删除。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</dialog>
+
+<!-- 二次确认 -->
+<dialog id="confirmDlg" aria-labelledby="confirmTitle">
+  <div class="sheet">
+    <div class="sheet-head"><h2 id="confirmTitle">确认</h2></div>
+    <div class="sheet-body"><p id="confirmText" class="note"></p></div>
+    <div class="sheet-foot">
+      <button class="btn-tinted" id="confirmNo" type="button">取消</button>
+      <button class="btn-danger" id="confirmYes" type="button">确认执行</button>
+    </div>
+  </div>
+</dialog>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+"use strict";
+(function () {
+  var API = "/api/admin";
+  var KEY = "shypwd.admin.token";
+  var token = sessionStorage.getItem(KEY) || "";
+  var users = [];
+  var current = null;
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  /* ------------------------------ 基础工具 ------------------------------ */
+  function toast(msg, kind) {
+    var el = $("toast");
+    el.textContent = msg;
+    el.dataset.kind = kind || "";
+    el.classList.add("show");
+    clearTimeout(toast._t);
+    toast._t = setTimeout(function () { el.classList.remove("show"); }, 4000);
+  }
+
+  function request(path, opts) {
+    opts = opts || {};
+    var headers = { "X-Admin-Token": token };
+    if (opts.body) { headers["Content-Type"] = "application/json"; }
+    return fetch(API + path, {
+      method: opts.method || "GET",
+      headers: headers,
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+    }).then(function (res) {
+      return res.text().then(function (txt) {
+        var data = null;
+        try { data = txt ? JSON.parse(txt) : null; } catch (e) { /* 非 JSON */ }
+        if (!res.ok) {
+          var err = new Error((data && (data.message || data.error)) || ("HTTP " + res.status));
+          err.status = res.status;
+          throw err;
+        }
+        return data;
+      });
+    });
+  }
+
+  function fmtDate(iso) {
+    if (!iso) { return "—"; }
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) { return iso; }
+    var p = function (n) { return n < 10 ? "0" + n : "" + n; };
+    return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) +
+           " " + p(d.getHours()) + ":" + p(d.getMinutes());
+  }
+
+  function daysLeft(iso) {
+    if (!iso) { return null; }
+    var d = new Date(iso).getTime();
+    if (isNaN(d)) { return null; }
+    return Math.ceil((d - Date.now()) / 86400000);
+  }
+
+  /* 二次确认：自绘弹窗（规范禁止原生 confirm） */
+  function confirmDlg(text) {
+    return new Promise(function (resolve) {
+      var dlg = $("confirmDlg");
+      $("confirmText").textContent = text;
+      function done(v) {
+        dlg.removeEventListener("close", onClose);
+        resolve(v);
+      }
+      function onClose() { done(dlg.returnValue === "yes"); }
+      dlg.addEventListener("close", onClose);
+      $("confirmNo").onclick = function () { dlg.close("no"); };
+      $("confirmYes").onclick = function () { dlg.close("yes"); };
+      dlg.showModal();
+    });
+  }
+
+  /* ------------------------------ 渲染 ------------------------------ */
+  function renderStats(s) {
+    var cards = [
+      { k: "账号总数", v: s.users, u: "含已停用与已到期" },
+      { k: "密码库条目", v: s.items, u: "不含回收站" },
+      { k: "已启用 2FA", v: s.totp, u: "个账号绑定了 TOTP" },
+      { k: "已停用", v: s.disabled, u: "登录被拒绝的账号" },
+      { k: "即将到期", v: s.expiring, u: "7 天内到期" },
+    ];
+    $("stats").innerHTML = cards.map(function (c) {
+      return '<div class="stat"><span class="k">' + c.k + '</span>' +
+             '<span class="v">' + c.v + '</span>' +
+             '<span class="u">' + c.u + '</span></div>';
+    }).join("");
+  }
+
+  function stateBadges(u) {
+    var out = [];
+    if (u.disabled_at) { out.push('<span class="badge off">已停用</span>'); return out.join(" "); }
+    var dl = daysLeft(u.expires_at);
+    if (dl !== null) {
+      if (dl < 0) { out.push('<span class="badge off">已到期</span>'); }
+      else if (dl <= 7) { out.push('<span class="badge warn">' + dl + ' 天后到期</span>'); }
+      else { out.push('<span class="badge">' + dl + ' 天后到期</span>'); }
+    }
+    if (!out.length) { out.push('<span class="badge ok">正常</span>'); }
+    return out.join(" ");
+  }
+
+  function render() {
+    var tb = $("userRows");
+    $("userCount").textContent = users.length ? "共 " + users.length + " 个" : "";
+    $("tableWrap").hidden = users.length === 0;
+    $("emptyState").hidden = users.length !== 0;
+
+    tb.innerHTML = users.map(function (u, i) {
+      return '<tr>' +
+        '<td class="email" data-label="账号">' + esc(u.email) +
+          (u.name ? '<span class="cell-sub">' + esc(u.name) + '</span>' : '') + '</td>' +
+        '<td class="num" data-label="条目">' + u.items + '</td>' +
+        '<td class="num" data-label="设备">' + u.devices + '</td>' +
+        '<td data-label="两步验证">' + (u.has_totp
+            ? '<span class="badge on">已开启</span>'
+            : '<span class="badge">未开启</span>') + '</td>' +
+        '<td data-label="状态">' + stateBadges(u) + '</td>' +
+        '<td class="num created" data-label="创建">' + fmtDate(u.created_at) + '</td>' +
+        '<td class="actions"><button class="btn-plain" data-i="' + i + '" type="button">管理</button></td>' +
+      '</tr>';
+    }).join("");
+  }
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  /* ------------------------------ 数据 ------------------------------ */
+  function load() {
+    return request("/users").then(function (data) {
+      users = (data && data.users) || [];
+      render();
+      return data;
+    });
+  }
+
+  function loadAll() {
+    return Promise.all([load(), request("/stats").then(function (d) { return d.stats; })])
+      .then(function (r) { renderStats(r[1]); });
+  }
+
+  /* ------------------------------ 详情弹窗 ------------------------------ */
+  function openDetail(u) {
+    current = u;
+    $("detailTitle").textContent = u.email;
+    var dl = daysLeft(u.expires_at);
+    var rows = [
+      ["账号 ID", '<span class="mono">' + esc(u.id) + "</span>"],
+      ["邮箱已验证", u.email_verified ? "是" : "否"],
+      ["条目 / 设备", u.items + " 条 / " + u.devices + " 台"],
+      ["两步验证", u.has_totp ? "已开启（TOTP）" : "未开启"],
+      ["创建时间", fmtDate(u.created_at)],
+      ["最后更新", fmtDate(u.updated_at)],
+      ["到期时间", u.expires_at ? (fmtDate(u.expires_at) + (dl !== null ? "（" + (dl < 0 ? "已过期" : dl + " 天后") + "）" : "")) : "永不过期"],
+      ["停用时间", u.disabled_at ? fmtDate(u.disabled_at) : "未停用"],
+    ];
+    $("detailKv").innerHTML = rows.map(function (r) {
+      return "<dt>" + r[0] + "</dt><dd>" + r[1] + "</dd>";
+    }).join("");
+    $("opToggleDisable").textContent = u.disabled_at ? "启用" : "停用";
+    $("detailDlg").showModal();
+  }
+
+  /* ------------------------------ 操作 ------------------------------ */
+  function act(fn, okMsg) {
+    return fn().then(function () {
+      toast(okMsg, "ok");
+      $("detailDlg").close();
+      return loadAll();
+    }).catch(function (e) {
+      toast(e.message || "操作失败", "error");
+      throw e;
+    });
+  }
+
+  function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+  function bindActions() {
+    $("detailClose").onclick = function () { $("detailDlg").close(); };
+
+    $("opSignOut").onclick = function () {
+      confirmDlg("让「" + current.email + "」的所有设备立即退出登录？").then(function (ok) {
+        if (!ok) { return; }
+        act(function () { return request("/users/" + current.id + "/sign-out", { method: "POST" }); },
+            "已踢下线");
+      });
+    };
+
+    $("opReset2fa").onclick = function () {
+      confirmDlg("重置「" + current.email + "」的两步验证？对方需要重新绑定验证器。").then(function (ok) {
+        if (!ok) { return; }
+        act(function () { return request("/users/" + current.id + "/reset-2fa", { method: "POST" }); },
+            "已重置两步验证");
+      });
+    };
+
+    $("opExpire").onclick = function () {
+      var n = parseInt($("expireDays").value, 10);
+      if (!(n >= 1 && n <= 3650)) { toast("到期天数需在 1–3650 之间", "error"); return; }
+      act(function () {
+        return request("/users/" + current.id + "/expire", { method: "POST", body: { days: n } });
+      }, "已设为 " + n + " 天后到期");
+    };
+
+    $("opExpireClear").onclick = function () {
+      act(function () {
+        return request("/users/" + current.id + "/expire", { method: "POST", body: { days: null } });
+      }, "已取消到期");
+    };
+
+    $("opToggleDisable").onclick = function () {
+      var next = !current.disabled_at;
+      confirmDlg((next ? "停用" : "启用") + "「" + current.email + "」？").then(function (ok) {
+        if (!ok) { return; }
+        act(function () {
+          return request("/users/" + current.id + "/disable", { method: "POST", body: { disabled: next } });
+        }, next ? "已停用" : "已启用");
+      });
+    };
+
+    $("opDelete").onclick = function () {
+      confirmDlg("彻底删除「" + current.email + "」及其全部密码库数据？此操作不可撤销。")
+        .then(function (ok) {
+          if (!ok) { return; }
+          return wait(1).then(function () {
+            return confirmDlg("最后确认：真的要删除吗？");
+          }).then(function (ok2) {
+            if (!ok2) { return; }
+            act(function () { return request("/users/" + current.id, { method: "DELETE" }); }, "已删除");
+          });
+        });
+    };
+
+    $("userRows").addEventListener("click", function (e) {
+      var btn = e.target.closest("button[data-i]");
+      if (btn) { openDetail(users[Number(btn.dataset.i)]); }
+    });
+
+    $("refreshBtn").onclick = function () {
+      loadAll().then(function () { toast("已刷新", "ok"); })
+               .catch(function (e) { toast(e.message, "error"); });
+    };
+
+    $("signOutBtn").onclick = function () {
+      sessionStorage.removeItem(KEY);
+      token = "";
+      $("dash").hidden = true;
+      $("gate").hidden = false;
+      $("tokenInput").value = "";
+      $("tokenInput").focus();
+    };
+  }
+
+  /* ------------------------------ 令牌门 ------------------------------ */
+  function enter() {
+    var v = $("tokenInput").value.trim();
+    if (!v) { showGateErr("请先填入管理令牌"); return; }
+    token = v;
+    $("gateBtn").disabled = true;
+    request("/session").then(function (data) {
+      sessionStorage.setItem(KEY, token);
+      $("gateErr").hidden = true;
+      $("gate").hidden = true;
+      $("dash").hidden = false;
+      var tag = $("envTag");
+      tag.hidden = false;
+      tag.dataset.env = data.env === "prod" ? "prod" : "test";
+      tag.textContent = (data.env === "prod" ? "生产" : "测试") + " · " + data.db;
+      return loadAll();
+    }).catch(function (e) {
+      token = "";
+      showGateErr(e.status === 401 ? "令牌不正确" : (e.message || "无法连接服务端"));
+    }).then(function () {
+      $("gateBtn").disabled = false;
+    });
+  }
+
+  function showGateErr(msg) {
+    var el = $("gateErr");
+    el.textContent = msg;
+    el.hidden = false;
+  }
+
+  /* ------------------------------ 启动 ------------------------------ */
+  $("gateBtn").onclick = enter;
+  $("tokenInput").addEventListener("keydown", function (e) {
+    if (e.key === "Enter") { enter(); }
+  });
+  bindActions();
+
+  if (token) {
+    $("gateBtn").disabled = true;
+    request("/session").then(function (data) {
+      $("gate").hidden = true;
+      $("dash").hidden = false;
+      var tag = $("envTag");
+      tag.hidden = false;
+      tag.dataset.env = data.env === "prod" ? "prod" : "test";
+      tag.textContent = (data.env === "prod" ? "生产" : "测试") + " · " + data.db;
+      return loadAll();
+    }).catch(function () {
+      token = "";
+      sessionStorage.removeItem(KEY);
+      $("gate").hidden = false;
+    }).then(function () {
+      $("gateBtn").disabled = false;
+    });
+  } else {
+    $("tokenInput").focus();
+  }
+})();
+</script>
+</body>
+</html>

@@ -55,6 +55,17 @@ run_worker_first = ["/api/*", "/identity/*", "/notifications/*"]
 
 [vars]
 DISABLE_USER_REGISTRATION = "false"  # enable registration button in web vault
+
+# ---- 账号管理台（页面在静态资源 /admin/，接口在 /api/admin/*）----
+# 只影响 UI 上显示的"生产/测试"徽章，不参与鉴权。
+ADMIN_ENV = "prod"
+# 库名标签，纯粹给人看（真身由下面 [[d1_databases]] 的 binding = "vault1" 决定）。
+ADMIN_DB = "vault1"
+# 🔴 写操作开关：ADMIN_ENV != "test" 时必须显式设为 "yes" 才允许改数据。
+# 这是**故意多出来的一个开关** —— 管理台能停用/删除账号，代价不可逆；
+# 万一这份代码被复制到别处、或凭据被换掉，至少还有一道"必须主动开启"的闸。
+# 只读接口（session/users/stats）不受它影响，关掉它管理台仍能看。
+ADMIN_ALLOW_WRITES = "yes"
 # Base URL for the worker, used for generating up/down URLs for files.
 # If not set, the base URL will be extracted from the incoming request.
 # BASE_URL = "https://vault.example.com"

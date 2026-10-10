@@ -40,8 +40,34 @@ pub struct User {
     #[serde(default = "default_json_array_string")]
     pub excluded_globals: String,
     pub totp_recover: Option<String>, // Recovery code for 2FA
+    /// 账号到期时间（ISO8601，账号管理台设置）。NULL = 永不过期。
+    /// `#[serde(default)]`：迁移 0015 落库前 `SELECT *` 不会有这两列，必须容忍缺字段。
+    #[serde(default)]
+    pub expires_at: Option<String>,
+    /// 停用时间（ISO8601）。非 NULL 即拒绝登录；NULL = 正常。
+    #[serde(default)]
+    pub disabled_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+}
+
+impl User {
+    /// 该账号当前是否**不允许登录**：被显式停用，或已过期。
+    ///
+    /// 到期判断放在这里（而不是只靠每日 cron）是有意的：
+    /// cron 一天只跑一次，若某账号在两次 cron 之间到期，它仍会有一段"该禁未禁"的窗口。
+    /// 登录时兜底判定把这个窗口压到 0，cron 只负责把 `disabled_at` 落成可审计的事实。
+    pub fn is_login_blocked(&self, now_iso: &str) -> Option<&'static str> {
+        if self.disabled_at.is_some() {
+            return Some("该账号已被停用，请联系管理员。");
+        }
+        if let Some(ref exp) = self.expires_at {
+            if exp.as_str() <= now_iso {
+                return Some("该账号已过期，请联系管理员。");
+            }
+        }
+        None
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

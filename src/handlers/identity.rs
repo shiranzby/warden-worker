@@ -336,6 +336,7 @@ async fn authenticate_password_grant(
             ));
         }
 
+        ensure_account_active(&user)?;
         return Ok(PasswordGrantAuthContext {
             user,
             device_request,
@@ -349,12 +350,28 @@ async fn authenticate_password_grant(
         return Err(AppError::Unauthorized("Invalid credentials".to_string()));
     }
 
+    ensure_account_active(&user)?;
+
     Ok(PasswordGrantAuthContext {
         user,
         device_request,
         password_hash: Some(password_hash),
         needs_migration: verification.needs_migration(),
     })
+}
+
+/// 账号被管理台停用 / 已过期 ⇒ 拒绝登录。
+///
+/// ⚠️ **只能在凭据校验通过之后调用**。若提前判，未认证的调用者就能靠"被停用"这个
+/// 与"密码错"不同的响应去枚举本实例上存在哪些邮箱 —— 会把
+/// `login_missing_user_delay_ms` 那套防枚举延迟直接绕过去。
+/// 放在凭据之后，只有知道主密码的人（也就是账号本人）才看得到原因，
+/// 而他能立刻明白"不是密码打错了"，正是我们要的效果。
+fn ensure_account_active(user: &User) -> Result<(), AppError> {
+    match user.is_login_blocked(&crate::db::now_string()) {
+        Some(message) => Err(AppError::Unauthorized(message.to_string())),
+        None => Ok(()),
+    }
 }
 
 async fn load_user_by_id(db: &crate::db::Db, user_id: &str) -> Result<User, AppError> {
@@ -806,6 +823,15 @@ pub async fn token(
             ) {
                 return Err(AppError::BadRequest("invalid_grant".to_string()));
             }
+
+            // 🔴 续期也必须过"账号是否可用"这一关。
+            //
+            // 少了这一句会有一个**很隐蔽的洞**：access token 到期后客户端会拿 refresh token
+            // 换新的，而这条路径原先只校验设备行与 security_stamp。
+            // 于是——只要"停用"没有同时轮换安全戳（每日 cron 把过期账号置为停用就属于这种），
+            // 一个**已经被停用的账号**就能靠不断续期无限期地用下去，"停用"形同虚设。
+            // 放在 security_stamp 之后是因为前面那些校验已经在逐步收窄；这里只是补最后一刀。
+            ensure_account_active(&user)?;
 
             device.touch(&db).await?;
 
