@@ -1,0 +1,16 @@
+-- 账号角色（所有者 / 管理者 / 普通用户）。
+--
+-- 背景：原来的账号管理台只有一条鉴权 —— 请求头 X-Admin-Token。谁拿到令牌谁就是管理员，
+-- 而令牌与账号本身完全脱钩：登录了也判不出身份，更没法在页面里改别人的权限。
+-- 现在把"身份"落到 users 表上，让会话本身就能定级：
+--   · role = 'user'  —— 普通用户，看不到管理页（默认值 ⇒ 既有用户行为与升级前完全一致）
+--   · role = 'admin' —— 管理者，看得到管理页、能做账号生命周期动作，但**不能改角色**，也**不能操作 owner**
+--   · role = 'owner' —— 所有者，全部权限，是唯一能改角色的一级（**可以有多位**）
+--
+-- ⚠️ 令牌通道（X-Admin-Token）在代码里被映射成 owner 级：既保持对旧接口/旧页面的向后兼容，
+--    也充当"库里还没有 owner"时的引导通道 —— 第一个 owner 只能由令牌指定。
+--    见 src/handlers/admin.rs 的 Role / resolve_actor。
+--
+-- NOT NULL + DEFAULT：SQLite 的 ALTER TABLE ADD COLUMN 对非空列强制要求默认值；
+-- 也正好让既有行一步到位落在 'user'，无需回填、无需重建表。
+ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user';

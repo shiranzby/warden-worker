@@ -167,6 +167,14 @@ sql/global_domains_seed.sql
 !.deploycheck/probe-admin-live-contrast.mjs
 #   ↑ 在**线上真实页面**读 resolved 色值实算对比度(静态令牌表算的是声明, 这里算渲染结果)。
 #     实测浅 4.57 / 深 5.10(徽章)、表头 5.02 / 6.26 —— 顺便证伪了"深色徽章文字偏暗"的缩放错觉。
+!.deploycheck/gh-api.py
+#   ↑ 本机**没有 gh CLI**, 用 GitHub REST API 代劳: artifacts / dispatch / runs / jobs。
+#     token 从 `.env.local` 的 GH_PAT 读, 不硬编码; 每次响应都核对仓库归属, 防本机代理串号。
+!.deploycheck/verify-account-admin-ui.mjs
+#   ↑ AC 段(账号管理并入设置栏目 + 角色权限)上生产前的**运行期闸门**: 测试通道三重角色对照
+#     (user→admin→owner→user) + `GET /api/admin/me`「只认会话」的实证 + 双视口截图。
+#     ⚠️ 它抓到过一条 CI 静态 grep 完全无感的 CSS 优先级 bug(窄屏次要列没藏掉) —— 别删。
+#     入库前已按上面的扫描命令跑过: 0 命中(凭据全部从环境变量/.env.local 读)。
 
 # shytest.cc.cd 测试通道的静态资源目录 = 前端 build 去掉 *.map 的副本(258 文件 / 73MB)。
 # 是纯构建产物且体积巨大, 不入库 —— 需要时按 test-proxy/wrangler.test.toml 顶部的命令重新打。

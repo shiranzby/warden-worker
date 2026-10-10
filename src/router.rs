@@ -275,11 +275,18 @@ pub fn api_router(env: Env) -> Router {
         )
         .route("/api/two-factor/get-recover", post(twofactor::get_recover))
         // 账号管理台（页面本身是静态资源 /admin/，这里只挂它调用的 JSON 接口）。
-        // 鉴权不是 JWT 而是 `X-Admin-Token`（见 handlers/admin.rs 的模块注释）：
-        // 管理台要能操作**别的**用户，所以刻意不复用 Claims 那套"只能操作自己"的提取器。
+        // 鉴权两条通道（见 handlers/admin.rs 的模块注释）：
+        //   · `X-Admin-Token` = owner 级，向后兼容旧管理页，兼作"库里还没有 owner"时的引导通道；
+        //   · `Authorization: Bearer <JWT>` + `users.role` = 主通道，web vault 登录着就能判出身份。
+        // 刻意不复用 Claims 那套"只能操作自己"的提取器：管理台要能操作**别的**用户。
+        //
+        // `/me` 是前端用来决定"要不要显示设置页里的账号管理入口"的探针：
+        // **只认会话**（不认令牌），且对普通用户返回 200 + role=user，不是 4xx。
+        .route("/api/admin/me", get(admin::me))
         .route("/api/admin/session", get(admin::session))
         .route("/api/admin/users", get(admin::list_users))
         .route("/api/admin/stats", get(admin::stats))
+        .route("/api/admin/users/{id}/role", post(admin::set_role))
         .route("/api/admin/users/{id}/sign-out", post(admin::sign_out))
         .route("/api/admin/users/{id}/reset-2fa", post(admin::reset_2fa))
         .route("/api/admin/users/{id}/expire", post(admin::expire))

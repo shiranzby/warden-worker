@@ -15,9 +15,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "产物标签 / artifact 名 (如 v2026.8.12)。会与源码里的版本核对, 不一致直接失败"
+        description: "产物标签 / artifact 名 (如 v2026.8.13)。会与源码里的版本核对, 不一致直接失败"
         required: true
-        default: "v2026.8.12"
+        default: "v2026.8.13"
 
 env:
   # 我们的前端源码 fork。定制已直接落在源码里(见 fork 的 shypwd 分支)。
@@ -1172,8 +1172,68 @@ jobs:
             fail=1
           fi
 
+          # 31) 第二十三批 / AC 段: 「账号管理」并进设置栏目(用户报的 1 条)
+          #     ← apps/web/src/app/settings/account-admin.component.{ts,html}
+          #       + settings/account-admin.guard.ts + layouts/account-admin.service.ts
+          #       + layouts/user-layout.component.html            (桌面设置导航, 条件渲染)
+          #       + layouts/mobile-sub-nav.component.ts           (窄屏二级导航, 条件渲染)
+          #       + oss-routing.module.ts                         (路由 + canActivate)
+          #       + css/vaultwarden.css                           (AC 段)
+          #
+          #     需求原话: 账号管理原来只能去独立的 /admin/, 还要另外记一个与账号完全脱钩的
+          #               ADMIN_TOKEN; 而且那个页面**改不了账号的角色**。现在并入设置栏目,
+          #               入口只在 所有者/管理者 里出现, 所有者可就地改角色。
+          #
+          #     基线对照: 下面每个字面量在 `live-main-2026.8.5.js` / `live-vw-2026.8.5.css`
+          #               里都是 **0 次**(实测) ⇒ 有区分度。
+          #     ⚠️ 不要断言 `accountAdminGuard` / `AccountAdminService` / `isAdmin` 这些
+          #        **标识符** —— terser 会改标识符名(P 段就踩过这个坑)。这里一律用
+          #        **类名 / 字符串字面量 / CSS 选择器**, 它们不参与混淆。
+          AC_JS=('app-account-admin' '/settings/account-admin' '/api/admin/me' '/api/admin/users' \
+                 'warden-admin-table' 'admin-confirm-yes' 'role_editable' 'is_owner')
+          for lit in "${AC_JS[@]}"; do
+            grep -qF -- "${lit}" .main.js \
+              || { echo "❌ 产物 main.js 里找不到第二十三批的标记 '${lit}'" >&2; fail=1; }
+          done
+          #   ★ 「账号管理」这个中文标签必须出现在**两处**: 桌面设置导航 + 窄屏二级导航。
+          #     只断言"存在"的话, "少写了一处"的回归不会被发现 —— 而用户要的正是两端都看得到。
+          AC_LABEL_N=$(grep -oF -- '账号管理' .main.js | wc -l)
+          if [ "${AC_LABEL_N}" -lt 2 ]; then
+            echo "❌ '账号管理' 在 main.js 里只出现 ${AC_LABEL_N} 次: 桌面导航与窄屏二级导航各需一份" >&2
+            fail=1
+          fi
+          echo "'账号管理' 出现次数: ${AC_LABEL_N}  (要求 >= 2)"
+
+          AC_CSS_POS=('第二十三批' '.warden-admin-stats' '.warden-admin-table' '.warden-admin-dlg' \
+                      'grid-template-columns: repeat(auto-fit, minmax(96px, 1fr))')
+          for lit in "${AC_CSS_POS[@]}"; do
+            grep -qF -- "${lit}" .vw.css \
+              || { echo "❌ css/vaultwarden.css 里找不到第二十三批的标记 '${lit}'" >&2; fail=1; }
+          done
+          #   ★ 窄屏必须把表格降级成**卡片列表**(藏掉次要列), 而不是让表格横向滚动 ——
+          #     规范禁止横向滚动。所以这两条要成对出现在窄屏媒体查询里:
+          #     `thead` 藏掉 + 次要列 <td> 藏掉。
+          #   🔴 **必须是 `td.warden-admin-extra`, 不能只写 `.warden-admin-extra`**:
+          #     同一段媒体查询里还有 `... .warden-admin-table td { display: block }`,
+          #     它的特异性是 (id1,class1,type2), 而 `.warden-admin-extra` 只有 (id1,class1,type1)
+          #     ⇒ **优先级输给它**, <td> 照样显示。AC 段上线前就是这么翻的车(实测 18 个
+          #     .warden-admin-extra 里 15 个 <td> 没藏住), 靠**运行期**断言才发现。
+          #   ⚠️ 这条 grep 只能证明"选择器字符串在产物里", **证明不了它生效** —— 改优先级时
+          #      它照样是绿的。真要守这条, 请跑 `.deploycheck/verify-account-admin-ui.mjs`
+          #      的 2b 组(数 .warden-admin-extra 的可见个数)。
+          if ! grep -qF -- 'main#main-content .warden-admin-table td.warden-admin-extra' .vw.css; then
+            echo "❌ 窄屏的次要列(td.warden-admin-extra)没有被藏掉 —— 表格会横向溢出" >&2
+            fail=1
+          fi
+          #   ★ 负向: AC 段的段字母不能是 Y —— 「Y 段」已被第二十一批占用(那批只改了 JS,
+          #     所以光看 CSS 段列表会以为 Y 还空着)。这条防的是"后来有人顺手把它改成 Y"。
+          if grep -qF -- 'Y 段. 「账号管理」' .vw.css; then
+            echo "❌ AC 段被误写成了 Y 段('Y 段' 属于第二十一批的下拉修复)" >&2
+            fail=1
+          fi
+
           [ "${fail}" -eq 0 ] || exit 1
-          echo "✅ 三十项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11 + 第七批 J6/B段 + 第八批 J16/E段 + 第九批 J15 + 第十批/N段 + 第十一批/O段 + 第十二批/P段 + 第十三批/Q段 + 第十四批/R段 + 第十五批/S段 + 第十六批/T段 + 第十七批/U段 + 第十八批/V段 + 第十九批/W段 + 第二十批/X段 + 第二十一批/Y段 + 第二十二批/AA段)均已在实际产物中得到验证"
+          echo "✅ 三十一项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11 + 第七批 J6/B段 + 第八批 J16/E段 + 第九批 J15 + 第十批/N段 + 第十一批/O段 + 第十二批/P段 + 第十三批/Q段 + 第十四批/R段 + 第十五批/S段 + 第十六批/T段 + 第十七批/U段 + 第十八批/V段 + 第十九批/W段 + 第二十批/X段 + 第二十一批/Y段 + 第二十二批/AA段 + 第二十三批/AC段)均已在实际产物中得到验证"
 
       - name: Disk space after
         if: always()
