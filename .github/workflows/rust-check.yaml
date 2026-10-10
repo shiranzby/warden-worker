@@ -1,0 +1,51 @@
+name: Rust check
+
+# 为什么单独放一个 workflow：
+#   后端是 Rust→WASM，而开发机没有 Rust 工具链，编译只能在 CI 做。
+#   push-cloudflare.yaml 虽然也会编译，但它①`on.push.branches` 只覆盖 main/uat/release*，
+#   ②**带生产部署** —— 拿它做分支上的编译检查会直接把未验收的代码打到线上。
+#   所以这里放一个"只编译、不部署、不碰任何 secret"的检查，给功能分支与手动 dispatch 用。
+#
+# ⚠️ 它刻意**不**部署、不注入 secret：即使误触也不会有副作用。
+on:
+  workflow_dispatch:
+  push:
+    branches-ignore: [main, uat, release*]
+    # 只在真的动到 Rust/迁移/构建配置时跑（否则改个文档也要等十几分钟编译）。
+    paths:
+      - "src/**"
+      - "migrations/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "wrangler.toml"
+      - ".github/workflows/rust-check.yaml"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: cargo fmt + check (wasm32)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install Rust toolchain (from rust-toolchain.toml)
+        run: |
+          set -euo pipefail
+          TOOLCHAIN="$(sed -n 's/^channel[[:space:]]*=[[:space:]]*"\([^"]*\)".*$/\1/p' rust-toolchain.toml | head -n 1)"
+          if [ -z "$TOOLCHAIN" ]; then
+            echo "❌ Failed to read toolchain channel from rust-toolchain.toml" >&2
+            exit 1
+          fi
+          echo "Using Rust toolchain: $TOOLCHAIN"
+          echo "RUSTUP_TOOLCHAIN=$TOOLCHAIN" >> "$GITHUB_ENV"
+          rustup toolchain install "$TOOLCHAIN" --profile minimal --component rustfmt --target wasm32-unknown-unknown
+
+      # 与 push-cloudflare.yaml 同源的工具链解析方式，保证"本地能编过 ⇒ 部署也能编过"。
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+      - name: cargo check (wasm32-unknown-unknown)
+        run: cargo check --locked --target wasm32-unknown-unknown
