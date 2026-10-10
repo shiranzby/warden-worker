@@ -9,6 +9,16 @@ on:
   push:
     branches: [main, uat, release*]
   workflow_dispatch:
+    inputs:
+      web_version:
+        description: >
+          （可选）这次要发布的前端版本标签，如 v2026.8.12。留空 = 用仓库变量 BW_WEB_VERSION / 默认值。
+          ⚠️ 这个入参存在的唯一理由：**只更新后端**的时候用得上。
+          本 workflow 会同时发布 Worker 与前端资产，而前端要"先上测试通道、验收完再上生产"；
+          所以在"后端必须先于前端上线"的那一步，用一个**已存在**的旧版本号 dispatch，
+          免得把还没验收的新前端一起推到生产。
+          （不能改成"干脆不下载前端" —— wrangler 部署静态资产是全量快照，
+            没有 public/web-vault 就等于把线上前端清空、站点直接打不开。）
 
 jobs:
   build:
@@ -23,7 +33,8 @@ jobs:
       #   否则 build-web-vault.yaml 的版本闸门不会产出同名 artifact, 部署侧反查必然失败。
       # - Set repository variable BW_WEB_VERSION to override
       # - Set to "latest" to follow the latest bw_web_builds release
-      BW_WEB_VERSION: ${{ vars.BW_WEB_VERSION || 'v2026.8.13' }}
+      # - workflow_dispatch 时可用 inputs.web_version 单次覆盖（见上面的 on.workflow_dispatch.inputs）
+      BW_WEB_VERSION: ${{ inputs.web_version || vars.BW_WEB_VERSION || 'v2026.8.13' }}
 
       # Required for wrangler (Global API Key auth: EMAIL + API_KEY pair)
       CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
