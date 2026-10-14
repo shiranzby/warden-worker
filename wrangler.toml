@@ -7,7 +7,7 @@ preview_urls = false
 
 # 账号2 自定义域（zone 6808637c6251dde545dd421ca1f3610c）
 routes = [
-  { pattern = shypwd.cc.cd, custom_domain = true }
+  { pattern = "shypwd.cc.cd", custom_domain = true }
 ]
 
 [durable_objects]
