@@ -66,7 +66,19 @@ jobs:
             - name: Get D1 Database Name
               id: db_name
               env:
+                  # 🔴 本 fork **没有** CLOUDFLARE_API_TOKEN（上游原版 workflow 硬编码要它，
+                  #    于是这里连着 6 天每天失败在第 5 步）。但 wrangler 同样接受
+                  #    **Global API Key 三件套**（CLOUDFLARE_EMAIL + CLOUDFLARE_API_KEY +
+                  #    CLOUDFLARE_ACCOUNT_ID）—— 这三个 secret 仓库里本来就有，
+                  #    `push-cloudflare.yaml`（Build）一直在用它们部署。
+                  #    2026-10-21 本机实测：`CLOUDFLARE_API_KEY`+`CLOUDFLARE_EMAIL`
+                  #    跑 `wrangler d1 list` / `wrangler d1 export --remote` 均认证通过
+                  #    （export 只对含 FTS5 虚拟表的库报错，而 vault1 的 schema 见
+                  #     `sql/schema.sql` + `migrations/`，全是普通表、无 FTS）。
+                  #    token 留在这里是"如果哪天配了就以它为准"，两者都是账号2 的凭据。
                   CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+                  CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+                  CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
                   CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
               run: |
                   DB_NAME=$(npx wrangler d1 list --json | jq -r '.[] | select(.uuid == "${{ secrets.D1_DATABASE_ID }}") | .name')
@@ -79,7 +91,10 @@ jobs:
 
             - name: Export D1 Database
               env:
+                  # 与上一步同源：用仓库**已有**的 Global API Key 三件套认证（见那里的实测说明）。
                   CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+                  CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+                  CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
                   CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
               run: |
                   echo "Exporting D1 database..."
