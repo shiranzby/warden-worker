@@ -190,6 +190,18 @@ sql/global_domains_seed.sql
 #     导致同一张表跨断点**字号与行高都不一致**(规范里的零容忍项)。
 #     ⚠️ 判据别用 `td.firstElementChild` 的盒子中心 —— 首列的子元素是 display:block、铺满整格,
 #        盒子中心恒等于格子中心, 会把"贴左"误判成"居中"; 一律用 Range 量文本自身。
+!.deploycheck/set-gh-secrets.py
+!.deploycheck/verify-webdav.py
+#   ↑ 2026-10-21 给 `Backup D1 Database (S3/WebDAV)` 配坚果云 WebDAV 时加的：
+#     · set-gh-secrets.py —— 本机没有 `gh` CLI，用 REST + **libsodium sealed box** 写仓库 secret，
+#       写完**回读确认**（"写成功了"和"真的在那儿"要分开证明）。值只从 .env.local 读、绝不回显。
+#       ⚠️ 需要带 PyNaCl 的 python（受管 venv：binaries/python/envs/default）。
+#     · verify-webdav.py —— WebDAV 凭据**往返**自检：认证→建目录→上传→列目录核对字节数→删除。
+#       四个 WEBDAV_* secret 缺一个、密码过期、URL 少了 /dav/，workflow 的表现都是同一个
+#       （上传静默跳过），所以必须先过这关再谈配置。
+#       🔴 坚果云实测：**文件**的 PUT/DELETE 正常，但**目录**的 DELETE 会被拒
+#       （403 OperationNotAllowed "not allowed on this location"）—— workflow 只删文件，不受影响，
+#       但自检的清理步骤会留下一个空目录，需要到客户端手工删（脚本有 --cleanup 可重试）。
 
 # shytest.cc.cd 测试通道的静态资源目录 = 前端 build 去掉 *.map 的副本(258 文件 / 73MB)。
 # 是纯构建产物且体积巨大, 不入库 —— 需要时按 test-proxy/wrangler.test.toml 顶部的命令重新打。
