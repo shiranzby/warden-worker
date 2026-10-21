@@ -199,6 +199,11 @@ sql/global_domains_seed.sql
 #     · verify-webdav.py —— WebDAV 凭据**往返**自检：认证→建目录→上传→列目录核对字节数→删除。
 #       四个 WEBDAV_* secret 缺一个、密码过期、URL 少了 /dav/，workflow 的表现都是同一个
 #       （上传静默跳过），所以必须先过这关再谈配置。
+!.deploycheck/verify-backup-restore.py
+#   ↑ 备份链路的**最后一段**验证：把坚果云里的最新备份拉回来 → AES-256 解密 → gunzip →
+#     校验表与行数。为什么必须有：备份不能恢复就等于没有备份，"传上去了"和"能恢复"是两件事。
+#     🔴 解密后只打印结构（表名/行数），**绝不打印数据行**；明文落盘后立即删除（--keep 才保留）。
+#     依赖系统 openssl + gzip（Git 自带那份就够）。
 #       🔴 坚果云实测：**文件**的 PUT/DELETE 正常，但**目录**的 DELETE 会被拒
 #       （403 OperationNotAllowed "not allowed on this location"）—— workflow 只删文件，不受影响，
 #       但自检的清理步骤会留下一个空目录，需要到客户端手工删（脚本有 --cleanup 可重试）。
