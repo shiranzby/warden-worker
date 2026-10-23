@@ -217,3 +217,10 @@ test-proxy/dist/
 .codex/
 .cursor/
 .claude/
+!.deploycheck/verify-bw-client.sh
+#   ↑ 2026-10-23 验证「官方 Bitwarden 客户端（浏览器扩展 / CLI）能不能连上我们的服务端」。
+#     扩展是编译产物、没法在本机跑，但**扩展与 CLI 共用同一套客户端库和认证流**
+#     （/identity/connect/token → /api/sync → /api/ciphers），所以 CLI 跑通 ≈ 扩展能跑通。
+#     实测结论（用验收测试账号）：登录 / unlock / sync / list items / get totp 全通。
+#     🔴 只从 .env.local 读凭据、只打印条目名与"有无 TOTP"、验证码打码，绝不打印密码与 totp 种子。
+#     ⚠️ 必须"登录→解锁→列条目→取 TOTP"在同一个脚本里跑：上一个脚本结尾 logout 会把会话清掉。
