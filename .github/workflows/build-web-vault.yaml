@@ -15,9 +15,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "产物标签 / artifact 名 (如 v2026.8.14)。会与源码里的版本核对, 不一致直接失败"
+        description: "产物标签 / artifact 名 (如 v2026.8.15)。会与源码里的版本核对, 不一致直接失败"
         required: true
-        default: "v2026.8.14"
+        default: "v2026.8.15"
 
 env:
   # 我们的前端源码 fork。定制已直接落在源码里(见 fork 的 shypwd 分支)。
@@ -1293,8 +1293,51 @@ jobs:
             fail=1
           fi
 
+          # 33) 第二十五批 / AE 段: 账号管理页**桌面端铺满** + **手机端卡片同行**(用户报的 2 条)
+          #     ← apps/web/src/app/settings/account-admin.component.html  (bit-container 挂 .warden-admin-wide)
+          #       + css/vaultwarden.css                                    (AE 段)
+          #
+          #     需求原话: 「目前的账号管理页面，没有很好适配电脑端的样式，没有铺满 …
+          #                手机端单条账号，却被普通用户 正常 管理反复换行，其实可以放在同一行，
+          #                如果账号名过长可以进行省略」
+          #
+          #     🔴 根因(probe-ae-width.mjs 在生产实测): 官方 <bit-container> 模板里的
+          #        <div class="tw-max-w-4xl"> 是 Tailwind max-width: 56rem = 896px;
+          #        1920 视口下 main#main-content 有 1568px 可用 ⇒ 整页被硬卡在 896px，
+          #        右侧 672px 全白。改前 390 视口下 4 个可见 <td> 全是 display:block，
+          #        落在 y=329/361/397/433 ⇒ 一张卡片纵向堆 4 行。
+          AE_CSS=('第二十五批' \
+                  'bit-container.warden-admin-wide > .tw-max-w-4xl' \
+                  'max-width: none' \
+                  'flex-wrap: wrap' \
+                  'min-width: 0' \
+                  'td:nth-child(2)' \
+                  'repeat(5, minmax(0, 1fr))')
+          for lit in "${AE_CSS[@]}"; do
+            grep -qF -- "${lit}" .vw.css \
+              || { echo "❌ css/vaultwarden.css 里找不到第二十五批的标记 '${lit}'" >&2; fail=1; }
+          done
+          #   ★ 类名必须真的挂到模板上(main.js 里出现)，否则 CSS 选择器再对也命中不了元素。
+          #     静态 grep 只证明"字符串在产物里"，生效与否由 .deploycheck/probe-ae-* 运行期量。
+          grep -qF -- 'warden-admin-wide' .main.js \
+            || { echo "❌ 产物 main.js 里找不到 warden-admin-wide —— HTML 没挂到 bit-container 上" >&2; fail=1; }
+          #   ★ 卡片模式的 <tr> 必须改成 flex-wrap —— 否则 4 个 <td> 又各占一行。
+          #     ⚠️ 不用 `grep -A… | grep -q` 管道: set -o pipefail 下后者 -q 命中即退出,
+          #        会让前一个 grep 拿到 SIGPIPE ⇒ 假失败(本 workflow 里已踩过一次)。
+          AE_TR_BLOCK=$(grep -A6 -F -- 'main#main-content .warden-admin-table tbody tr {' .vw.css || true)
+          case "${AE_TR_BLOCK}" in
+            *'display: flex'*) ;;
+            *) echo "❌ 卡片模式 <tr> 没有 display:flex —— 三要素仍会各占一行" >&2; fail=1 ;;
+          esac
+          #   ★ 负向: 只改本页, 不能把 .tw-max-w-4xl 这个上游组件整个改掉(会波及所有设置页)。
+          #     所以选择器必须带 `bit-container.warden-admin-wide` 限定。
+          if grep -qF -- 'main#main-content .tw-max-w-4xl {' .vw.css; then
+            echo "❌ 出现未限定的 .tw-max-w-4xl 全局规则 —— 会波及所有设置页" >&2
+            fail=1
+          fi
+
           [ "${fail}" -eq 0 ] || exit 1
-          echo "✅ 三十二项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11 + 第七批 J6/B段 + 第八批 J16/E段 + 第九批 J15 + 第十批/N段 + 第十一批/O段 + 第十二批/P段 + 第十三批/Q段 + 第十四批/R段 + 第十五批/S段 + 第十六批/T段 + 第十七批/U段 + 第十八批/V段 + 第十九批/W段 + 第二十批/X段 + 第二十一批/Y段 + 第二十二批/AA段 + 第二十三批/AC段 + 第二十四批/AD段)均已在实际产物中得到验证"
+          echo "✅ 三十三项源码级定制(F/G/J8/J9/J12/J14/J17 + 视口 + 主密码长度 + J7/A段 + 第六批 4b/I/J10/J11 + 第七批 J6/B段 + 第八批 J16/E段 + 第九批 J15 + 第十批/N段 + 第十一批/O段 + 第十二批/P段 + 第十三批/Q段 + 第十四批/R段 + 第十五批/S段 + 第十六批/T段 + 第十七批/U段 + 第十八批/V段 + 第十九批/W段 + 第二十批/X段 + 第二十一批/Y段 + 第二十二批/AA段 + 第二十三批/AC段 + 第二十四批/AD段 + 第二十五批/AE段)均已在实际产物中得到验证"
 
       - name: Disk space after
         if: always()
